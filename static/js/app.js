@@ -82,13 +82,15 @@ function switchTab(tab) {
 }
 
 /* ── WORD-BY-WORD CHECK ─────────────────────────────────── */
-function renderMasked(segIndex) {
+function renderMasked(segIndex, hintIdx = -1) {
   if (!segments[segIndex]) return;
   const exp = normalize(segments[segIndex].text);
   const raw = segments[segIndex].text.trim().split(/\s+/);
   $('wordRow').innerHTML = raw.map((w, i) => {
     if (i < wordIdx)
       return `<span class="word word-correct">${esc(w)}</span>`;
+    if (i === hintIdx)
+      return `<span class="word word-revealed">${esc(w)}</span>`;
     const len = exp[i] ? exp[i].length : w.replace(/[^\w']/g, '').length;
     return `<span class="word word-masked">${'*'.repeat(Math.max(len, 1))}</span>`;
   }).join(' ');
@@ -98,30 +100,40 @@ function renderMasked(segIndex) {
   $('resultArea').style.display = 'flex';
 }
 
-function checkCurrentWord() {
-  const val = $('dictInput').value;
-  if (!val.endsWith(' ')) return;
-  const typed = val.trim().split(/\s+/).filter(Boolean);
-  if (!typed.length) return;
-  const last = typed[typed.length - 1].toLowerCase().replace(/[^\w']/g, '');
-  const exp  = normalize(segments[current].text);
+function checkSentence() {
+  const val = $('dictInput').value.trim();
+  if (!val) return;
+  const typed = normalize(val);
+  const exp   = normalize(segments[current].text);
   if (wordIdx >= exp.length) return;
 
-  if (last === exp[wordIdx]) {
-    wordIdx++;
-    $('dictInput').value = '';
-    renderMasked(current);
-    if (wordIdx >= exp.length) {
-      scores[current] = 100;
-      updateProgress();
-      setStatus('checked', '🎉 Hoàn hảo!');
-      showTranslation(current);
-      if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
-    } else {
-      setStatus('playing', '✓ Đúng!');
-    }
+  // Count consecutive matches starting from wordIdx
+  let matched = 0;
+  for (let i = 0; i < typed.length && (wordIdx + i) < exp.length; i++) {
+    if (typed[i] === exp[wordIdx + i]) matched++;
+    else break;
+  }
+
+  wordIdx += matched;
+  $('dictInput').value = '';
+
+  if (wordIdx >= exp.length) {
+    scores[current] = 100;
+    updateProgress();
+    const raw = segments[current].text.trim().split(/\s+/);
+    $('wordRow').innerHTML = raw.map(w => `<span class="word word-correct">${esc(w)}</span>`).join(' ');
+    $('resultStat').innerHTML = '';
+    $('resultArea').style.display = 'flex';
+    setStatus('checked', '🎉 Hoàn hảo!');
+    showTranslation(current);
+    if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
-    setStatus('waiting', '⚠ Sai rồi, thử lại!');
+    // Reveal hint: the expected word at the current fail position
+    renderMasked(current, wordIdx);
+    setStatus('waiting', matched > 0
+      ? `✓ ${matched} từ đúng — từ tiếp theo đang được gợi ý!`
+      : '⚠ Sai rồi — xem từ gợi ý màu xanh!');
+    $('dictInput').focus();
   }
 }
 
@@ -397,7 +409,8 @@ $('urlForm').addEventListener('submit', async e => {
 });
 
 /* ── BUTTONS ────────────────────────────────────────────── */
-$('checkBtn').addEventListener('click',  skipWord);
+$('checkBtn').addEventListener('click',  checkSentence);
+$('skipBtn').addEventListener('click',   skipWord);
 $('revealBtn').addEventListener('click', revealAnswer);
 $('clearBtn').addEventListener('click', () => {
   wordIdx = 0;
@@ -414,10 +427,8 @@ $('prevBtn').addEventListener('click',   () => goTo(current - 1));
 $('nextBtn').addEventListener('click',   () => goTo(current + 1));
 
 /* ── KEYBOARD ───────────────────────────────────────────── */
-$('dictInput').addEventListener('input', () => checkCurrentWord());
-
 $('dictInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); skipWord(); return; }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); checkSentence(); return; }
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'r' || e.key === 'R') { e.preventDefault(); playSeg(current); }
     if (e.key === 'ArrowRight')          { e.preventDefault(); goTo(current + 1); }

@@ -1,6 +1,7 @@
 /* ── STATE ──────────────────────────────────────────────── */
 let player       = null;
 let ytReady      = false;
+let playerReady  = false;
 let pendingId    = null;
 let segments     = [];
 let translations = [];
@@ -16,27 +17,34 @@ const $ = id => document.getElementById(id);
 /* ── YOUTUBE API ────────────────────────────────────────── */
 window.onYouTubeIframeAPIReady = () => {
   ytReady = true;
-  if (pendingId) { createPlayer(pendingId); pendingId = null; }
-};
-
-function createPlayer(videoId) {
-  if (player) { player.loadVideoById(videoId); player.pauseVideo(); return; }
+  // Pre-create the player immediately so it's warm before the user submits a URL
   player = new YT.Player('ytPlayer', {
-    videoId,
     playerVars: { rel: 0, modestbranding: 1, fs: 1, playsinline: 1 },
     events: {
-      onReady: () => { player.pauseVideo(); goTo(0); },
+      onReady: () => {
+        playerReady = true;
+        player.pauseVideo();
+        if (pendingId) {
+          player.loadVideoById(pendingId);
+          pendingId = null;
+          goTo(0);
+        }
+      },
       onStateChange: e => {
         if (e.data === YT.PlayerState.PLAYING)
           setStatus('playing', '▶ Đang phát đoạn ' + (current + 1) + '…');
       },
     },
   });
-}
+};
 
 function initPlayer(videoId) {
-  if (ytReady) createPlayer(videoId);
-  else pendingId = videoId;
+  if (playerReady) {
+    player.loadVideoById(videoId);
+    goTo(0);
+  } else {
+    pendingId = videoId;
+  }
 }
 
 /* ── PLAYBACK ───────────────────────────────────────────── */
@@ -317,9 +325,8 @@ $('urlForm').addEventListener('submit', async e => {
 
     renderTranscriptList();
     startSync();
-    initPlayer(data.video_id);
     updateProgress();
-    setStatus('', 'Đang khởi động trình phát…');
+    initPlayer(data.video_id);
 
     // If YouTube had no VI translation → fetch via Google Translate in background
     if (data.need_translate) {

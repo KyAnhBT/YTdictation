@@ -114,7 +114,6 @@ function checkSentence() {
   }
 
   wordIdx = matched;
-  $('dictInput').value = typed.slice(matched).join(' ');
 
   if (wordIdx >= exp.length) {
     scores[current] = 100;
@@ -124,7 +123,6 @@ function checkSentence() {
     $('resultArea').style.display = 'flex';
     setStatus('checked', '🎉 Hoàn hảo!');
     showTranslation(current);
-    $('dictInput').value = '';
     if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
     renderMasked(current, wordIdx);

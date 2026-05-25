@@ -289,13 +289,18 @@ kbd {
 #paneTrans {
   padding: 0;
   gap: 0;
+  /* Align bottom of transcript pane with bottom of video column */
+  max-height: calc(100vh - 220px);
+  display: flex;
+  flex-direction: column;
 }
 
 .tr-list {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 58vh;
+  flex: 1;
+  min-height: 0;
   scroll-behavior: smooth;
 }
 .tr-list::-webkit-scrollbar { width: 6px; }

@@ -115,7 +115,10 @@ function checkSentence() {
   }
 
   wordIdx += matched;
-  $('dictInput').value = '';
+
+  // Keep only unmatched words in input so user can fix them
+  const unmatched = typed.slice(matched);
+  $('dictInput').value = unmatched.join(' ');
 
   if (wordIdx >= exp.length) {
     scores[current] = 100;
@@ -126,6 +129,7 @@ function checkSentence() {
     $('resultArea').style.display = 'flex';
     setStatus('checked', '🎉 Hoàn hảo!');
     showTranslation(current);
+    $('dictInput').value = '';
     if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
     // Reveal hint: the expected word at the current fail position
@@ -186,7 +190,10 @@ function showTranslation(index) {
 
 /* ── COMPARE ────────────────────────────────────────────── */
 function normalize(s) {
-  return s.toLowerCase().replace(/[^\w\s']/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return s.toLowerCase()
+    .replace(/[‘’‚‛′‵`´]/g, "'") // Unicode apostrophes → ASCII
+    .replace(/[^\w\s']/g, ' ')
+    .trim().split(/\s+/).filter(Boolean);
 }
 
 function compare(input, expected) {

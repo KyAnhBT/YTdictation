@@ -9,6 +9,8 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
     YouTubeRequestFailed,
 )
+from pydantic import BaseModel
+import asyncio
 import re
 import html
 from typing import Optional
@@ -19,6 +21,8 @@ templates = Jinja2Templates(directory="templates")
 
 _yt_api = YouTubeTranscriptApi()
 
+
+# ── helpers ──────────────────────────────────────────────────────────────────
 
 def extract_video_id(url: str) -> Optional[str]:
     url = url.strip()
@@ -71,12 +75,9 @@ def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list[dict
 
 
 def align_translations(en_segments: list[dict], vi_raw) -> list[Optional[str]]:
-    """
-    Match each grouped EN segment to VI snippets by timestamp overlap,
-    then join them as the translation for that segment.
-    """
+    """Map YouTube VI snippets onto grouped EN segments by timestamp."""
     vi_snippets = [to_dict(s) for s in vi_raw]
-    translations = []
+    out = []
     for seg in en_segments:
         end = seg['start'] + seg['duration']
         parts = [
@@ -85,9 +86,11 @@ def align_translations(en_segments: list[dict], vi_raw) -> list[Optional[str]]:
             if s['start'] >= seg['start'] - 0.5 and s['start'] < end + 0.5
             and clean_text(s['text'])
         ]
-        translations.append(' '.join(parts) if parts else None)
-    return translations
+        out.append(' '.join(parts) if parts else None)
+    return out
 
+
+# ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -113,7 +116,6 @@ async def get_transcript(url: str):
     except Exception as e:
         raise HTTPException(500, f"Lỗi khi tải danh sách phụ đề: {e}")
 
-    # Pick best EN transcript
     transcript = None
     for finder in [
         lambda tl: tl.find_manually_created_transcript(['en', 'en-US', 'en-GB']),
@@ -141,14 +143,16 @@ async def get_transcript(url: str):
     if not segments:
         raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")
 
-    # Fetch Vietnamese translation using YouTube's own translation service
+    # Try YouTube's built-in VI translation (instant, no extra cost)
     translations: list[Optional[str]] = [None] * len(segments)
+    has_yt_vi = False
     if not transcript.language_code.startswith('vi'):
         try:
             vi_raw = transcript.translate('vi').fetch()
             translations = align_translations(segments, vi_raw)
+            has_yt_vi = any(t for t in translations)
         except Exception:
-            pass  # translation unavailable for this video — silently skip
+            pass
 
     return {
         "video_id": video_id,
@@ -157,7 +161,50 @@ async def get_transcript(url: str):
         "is_generated": transcript.is_generated,
         "segments": segments,
         "translations": translations,
+        # tells frontend whether to fetch translations separately
+        "need_translate": not has_yt_vi and not transcript.language_code.startswith('vi'),
     }
+
+
+# ── translation endpoint ──────────────────────────────────────────────────────
+
+class TranslateRequest(BaseModel):
+    texts: list[str]
+    target: str = "vi"
+
+
+async def _translate_one(text: str, target: str) -> Optional[str]:
+    """Translate a single text in a thread (deep-translator is synchronous)."""
+    loop = asyncio.get_event_loop()
+    def _do():
+        try:
+            from deep_translator import GoogleTranslator
+            return GoogleTranslator(source="auto", target=target).translate(text)
+        except Exception:
+            try:
+                from deep_translator import MyMemoryTranslator
+                lang_map = {"vi": "vi-VN", "en": "en-US"}
+                tgt = lang_map.get(target, target)
+                return MyMemoryTranslator(source="en-US", target=tgt).translate(text)
+            except Exception:
+                return None
+    return await loop.run_in_executor(None, _do)
+
+
+@app.post("/api/translate")
+async def translate_texts(body: TranslateRequest):
+    if not body.texts:
+        return {"translations": []}
+
+    # Translate all segments concurrently (up to 8 at a time)
+    sem = asyncio.Semaphore(8)
+
+    async def bounded(text: str) -> Optional[str]:
+        async with sem:
+            return await _translate_one(text, body.target)
+
+    results = await asyncio.gather(*[bounded(t) for t in body.texts])
+    return {"translations": list(results)}
 
 
 if __name__ == "__main__":

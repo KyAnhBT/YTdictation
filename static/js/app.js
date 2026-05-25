@@ -3,7 +3,7 @@ let player       = null;
 let ytReady      = false;
 let pendingId    = null;
 let segments     = [];
-let translations = [];   // parallel array: translations[i] = VI string or null
+let translations = [];
 let current      = 0;
 let pauseTimer   = null;
 let syncTimer    = null;
@@ -82,13 +82,11 @@ function checkAnswer() {
   const input    = $('dictInput').value;
   const expected = segments[current].text;
   if (!input.trim()) { $('dictInput').focus(); return; }
-
   const result = compare(input, expected);
   scores[current] = result.accuracy;
   showResult(result);
   showTranslation(current);
   updateProgress();
-
   if (result.accuracy === 100 && $('autoAdvance').checked)
     setTimeout(() => goTo(current + 1), 1400);
 }
@@ -106,12 +104,18 @@ function revealAnswer() {
   updateProgress();
 }
 
-/* ── TRANSLATION DISPLAY (dictation pane) ───────────────── */
+/* ── TRANSLATION DISPLAY ────────────────────────────────── */
 function showTranslation(index) {
   const vi = translations[index];
   if (vi) {
     $('viText').textContent = vi;
-    $('viBlock').hidden = false;
+    $('viText').className   = 'vi-text';
+    $('viBlock').hidden     = false;
+  } else if (translations.length > 0 && translations.every(t => t === null)) {
+    // still loading — show placeholder
+    $('viText').textContent = 'Đang dịch…';
+    $('viText').className   = 'vi-text loading';
+    $('viBlock').hidden     = false;
   } else {
     $('viBlock').hidden = true;
   }
@@ -123,14 +127,13 @@ function normalize(s) {
 }
 
 function compare(input, expected) {
-  const inp = normalize(input);
-  const exp = normalize(expected);
+  const inp = normalize(input), exp = normalize(expected);
   let correct = 0;
   const tokens = [];
   for (let i = 0; i < exp.length; i++) {
     if (inp[i] === exp[i]) { tokens.push({ word: exp[i], cls: 'word-correct' }); correct++; }
-    else if (!inp[i])      tokens.push({ word: exp[i], cls: 'word-missing' });
-    else                   tokens.push({ word: inp[i], cls: 'word-incorrect' });
+    else if (!inp[i])       tokens.push({ word: exp[i], cls: 'word-missing' });
+    else                    tokens.push({ word: inp[i], cls: 'word-incorrect' });
   }
   for (let i = exp.length; i < inp.length; i++)
     tokens.push({ word: inp[i], cls: 'word-extra' });
@@ -177,7 +180,7 @@ function setStatus(type, msg) {
   $('statusText').textContent = msg;
 }
 
-/* ── TRANSCRIPT ─────────────────────────────────────────── */
+/* ── TRANSCRIPT RENDERING ───────────────────────────────── */
 function renderTranscriptList() {
   const hasVI = translations.some(t => t);
   $('trList').innerHTML = segments.map((seg, i) => {
@@ -187,12 +190,23 @@ function renderTranscriptList() {
       <div class="tr-time">${fmtTime(seg.start)}</div>
       <div class="tr-body">
         <div class="tr-en">${esc(seg.text)}</div>
-        ${hasVI
-          ? `<div class="tr-vi${vi ? '' : ' tr-pending'}">${vi ? esc(vi) : '—'}</div>`
+        ${hasVI || vi !== undefined
+          ? `<div class="tr-vi${vi ? '' : ' tr-pending'}">${vi ? esc(vi) : '…'}</div>`
           : ''}
       </div>
     </div>`;
   }).join('');
+}
+
+/* Called after background translation arrives — update only VI rows */
+function patchTranslationRows() {
+  translations.forEach((vi, i) => {
+    if (!vi) return;
+    const row = $('trList').querySelector(`[data-idx="${i}"] .tr-vi`);
+    if (row) { row.textContent = vi; row.classList.remove('tr-pending'); }
+  });
+  // refresh vi-block if result is currently visible
+  if (!$('resultArea').hidden) showTranslation(current);
 }
 
 function highlightTransSeg(index, scroll = false) {
@@ -204,10 +218,10 @@ function highlightTransSeg(index, scroll = false) {
 
 function trClick(index) {
   goTo(index);
-  switchTab('trans');
+  if (activeTab !== 'trans') switchTab('trans');
 }
 
-/* ── REAL-TIME SYNC (transcript highlight follows playback) */
+/* ── REAL-TIME SYNC ─────────────────────────────────────── */
 function startSync() {
   clearInterval(syncTimer);
   syncTimer = setInterval(() => {
@@ -221,6 +235,35 @@ function startSync() {
       if (activeTab === 'trans') highlightTransSeg(current, true);
     }
   }, 400);
+}
+
+/* ── BACKGROUND TRANSLATION FETCH ──────────────────────── */
+async function fetchTranslationsBackground(langCode) {
+  // Mark all VI rows as loading
+  $('tabBtnTrans').dataset.loading = '1';
+  updateTabLabel(true);
+
+  try {
+    const res  = await fetch('/api/translate', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ texts: segments.map(s => s.text), target: 'vi' }),
+    });
+    const data = await res.json();
+    if (data.translations) {
+      translations = data.translations;
+      patchTranslationRows();
+    }
+  } catch (e) {
+    console.warn('Background translation failed:', e);
+  } finally {
+    delete $('tabBtnTrans').dataset.loading;
+    updateTabLabel(false);
+  }
+}
+
+function updateTabLabel(loading) {
+  $('tabBtnTrans').textContent = loading ? '📋 Transcript ⏳' : '📋 Transcript';
 }
 
 /* ── FORM SUBMIT ────────────────────────────────────────── */
@@ -237,7 +280,7 @@ $('urlForm').addEventListener('submit', async e => {
     if (!res.ok) throw new Error(data.detail || 'Lỗi không xác định');
 
     segments     = data.segments;
-    translations = data.translations || [];
+    translations = data.translations || new Array(segments.length).fill(null);
     current      = 0;
     scores       = {};
 
@@ -248,12 +291,16 @@ $('urlForm').addEventListener('submit', async e => {
       `<span class="badge">${esc(data.language)}</span>` +
       (data.is_generated ? `<span class="badge badge-auto">Auto-generated</span>` : '');
 
-    // Build transcript list immediately (translations already available)
     renderTranscriptList();
     startSync();
     initPlayer(data.video_id);
     updateProgress();
     setStatus('', 'Đang khởi động trình phát…');
+
+    // If YouTube had no VI translation → fetch via Google Translate in background
+    if (data.need_translate) {
+      fetchTranslationsBackground(data.language_code);
+    }
 
   } catch (err) {
     $('errorMsg').textContent = err.message;

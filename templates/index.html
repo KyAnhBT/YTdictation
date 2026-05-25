@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Dictation – Luyện nghe với YouTube</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-yt">YT</span><span class="logo-dict">Dictation</span>
+      </div>
+      <p class="tagline">Luyện nghe với bất kỳ video YouTube nào</p>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ── URL INPUT ─────────────────────────────────────────── -->
+    <section class="card url-card" id="urlCard">
+      <h2 class="section-title">Nhập đường dẫn video YouTube</h2>
+      <form id="urlForm" class="url-form" autocomplete="off">
+        <input
+          type="text"
+          id="videoUrl"
+          class="url-input"
+          placeholder="https://www.youtube.com/watch?v=..."
+          spellcheck="false"
+        />
+        <button type="submit" class="btn btn-primary" id="startBtn">
+          <span id="btnLabel">▶ Bắt đầu</span>
+          <span id="btnSpinner" class="spinner" hidden></span>
+        </button>
+      </form>
+      <p class="error-msg" id="errorMsg" hidden></p>
+    </section>
+
+    <!-- ── DICTATION WORKSPACE ───────────────────────────────── -->
+    <section class="workspace" id="workspace" hidden>
+
+      <!-- left: video -->
+      <div class="video-col">
+        <div class="player-wrap">
+          <div id="ytPlayer"></div>
+        </div>
+        <div class="video-meta" id="videoMeta"></div>
+      </div>
+
+      <!-- right: practice -->
+      <div class="practice-col card">
+
+        <!-- progress -->
+        <div class="progress-row">
+          <span class="seg-counter" id="segCounter">1 / 1</span>
+          <span class="overall-score" id="overallScore"></span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <!-- playback controls -->
+        <div class="ctrl-row">
+          <button class="btn btn-sm btn-outline" id="replayBtn" title="Phát lại (Ctrl+R)">↩ Phát lại</button>
+          <button class="btn btn-sm btn-outline" id="prevBtn"   title="Câu trước (Ctrl+←)" disabled>◀ Trước</button>
+          <button class="btn btn-sm btn-outline" id="nextBtn"   title="Câu sau (Ctrl+→)">Tiếp ▶</button>
+          <label class="toggle">
+            <input type="checkbox" id="autoAdvance" checked />
+            <span>Tự động tiếp</span>
+          </label>
+        </div>
+
+        <!-- status banner -->
+        <div class="status-banner" id="statusBanner">
+          <span id="statusText">Đang tải...</span>
+        </div>
+
+        <!-- text input -->
+        <div class="input-wrap">
+          <textarea
+            id="dictInput"
+            class="dict-textarea"
+            placeholder="Gõ những gì bạn nghe được..."
+            rows="3"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <!-- action buttons -->
+        <div class="action-row">
+          <button class="btn btn-success" id="checkBtn">✓ Kiểm tra</button>
+          <button class="btn btn-warn"    id="revealBtn">👁 Xem đáp án</button>
+          <button class="btn btn-ghost"   id="clearBtn">✕ Xóa</button>
+        </div>
+
+        <!-- result area -->
+        <div class="result-area" id="resultArea" hidden>
+          <div class="word-row" id="wordRow"></div>
+          <div class="result-stat" id="resultStat"></div>
+        </div>
+
+        <!-- shortcuts hint -->
+        <div class="shortcuts">
+          <kbd>Enter</kbd> kiểm tra &nbsp;·&nbsp;
+          <kbd>Ctrl+R</kbd> phát lại &nbsp;·&nbsp;
+          <kbd>Ctrl+→</kbd> tiếp &nbsp;·&nbsp;
+          <kbd>Ctrl+←</kbd> trước
+        </div>
+
+      </div><!-- /practice-col -->
+    </section><!-- /workspace -->
+
+  </main>
+
+  <footer class="footer">
+    <p>Luyện nghe mỗi ngày – tiến bộ từng ngày 🎧</p>
+  </footer>
+
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

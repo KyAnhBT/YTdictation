@@ -9,7 +9,6 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
     YouTubeRequestFailed,
 )
-from pydantic import BaseModel
 import re
 import html
 from typing import Optional
@@ -18,20 +17,18 @@ app = FastAPI(title="YT Dictation")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# v1.x requires instantiation
 _yt_api = YouTubeTranscriptApi()
 
 
 def extract_video_id(url: str) -> Optional[str]:
     url = url.strip()
-    patterns = [
+    for pattern in [
         r'(?:youtube\.com/watch\?v=|youtube\.com/embed/|youtube\.com/shorts/)([0-9A-Za-z_-]{11})',
         r'youtu\.be/([0-9A-Za-z_-]{11})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
+    ]:
+        m = re.search(pattern, url)
+        if m:
+            return m.group(1)
     if re.match(r'^[0-9A-Za-z_-]{11}$', url):
         return url
     return None
@@ -40,45 +37,56 @@ def extract_video_id(url: str) -> Optional[str]:
 def clean_text(text: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    return re.sub(r'\s+', ' ', text).strip()
 
 
-def snippet_to_dict(seg) -> dict:
-    """Normalise both dict (v0.x) and object (v1.x) snippets."""
+def to_dict(seg) -> dict:
     if isinstance(seg, dict):
         return seg
     return {'text': seg.text, 'start': float(seg.start), 'duration': float(seg.duration)}
 
 
-def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list:
-    result = []
-    current = None
-
+def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list[dict]:
+    result, cur = [], None
     for raw_seg in raw:
-        seg = snippet_to_dict(raw_seg)
+        seg = to_dict(raw_seg)
         text = clean_text(seg['text'])
         if not text:
             continue
-
-        if current is None:
-            current = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
+        if cur is None:
+            cur = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
         else:
             new_end = seg['start'] + seg['duration']
-            merged_dur = new_end - current['start']
-            ends_sentence = current['text'].rstrip().endswith(('.', '!', '?'))
-
-            if merged_dur > max_dur or (merged_dur >= target and ends_sentence):
-                result.append(current)
-                current = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
+            merged = new_end - cur['start']
+            ends = cur['text'].rstrip().endswith(('.', '!', '?'))
+            if merged > max_dur or (merged >= target and ends):
+                result.append(cur)
+                cur = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
             else:
-                current['text'] += ' ' + text
-                current['duration'] = new_end - current['start']
-
-    if current:
-        result.append(current)
-
+                cur['text'] += ' ' + text
+                cur['duration'] = new_end - cur['start']
+    if cur:
+        result.append(cur)
     return result
+
+
+def align_translations(en_segments: list[dict], vi_raw) -> list[Optional[str]]:
+    """
+    Match each grouped EN segment to VI snippets by timestamp overlap,
+    then join them as the translation for that segment.
+    """
+    vi_snippets = [to_dict(s) for s in vi_raw]
+    translations = []
+    for seg in en_segments:
+        end = seg['start'] + seg['duration']
+        parts = [
+            clean_text(s['text'])
+            for s in vi_snippets
+            if s['start'] >= seg['start'] - 0.5 and s['start'] < end + 0.5
+            and clean_text(s['text'])
+        ]
+        translations.append(' '.join(parts) if parts else None)
+    return translations
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -90,23 +98,23 @@ async def index(request: Request):
 async def get_transcript(url: str):
     video_id = extract_video_id(url)
     if not video_id:
-        raise HTTPException(status_code=400, detail="URL YouTube không hợp lệ. Vui lòng kiểm tra lại.")
+        raise HTTPException(400, "URL YouTube không hợp lệ.")
 
     try:
         transcript_list = _yt_api.list(video_id)
     except TranscriptsDisabled:
-        raise HTTPException(status_code=404, detail="Video này đã tắt phụ đề.")
+        raise HTTPException(404, "Video này đã tắt phụ đề.")
     except NoTranscriptFound:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phụ đề cho video này.")
+        raise HTTPException(404, "Không tìm thấy phụ đề cho video này.")
     except VideoUnavailable:
-        raise HTTPException(status_code=404, detail="Video không tồn tại hoặc không thể truy cập.")
+        raise HTTPException(404, "Video không tồn tại hoặc không thể truy cập.")
     except YouTubeRequestFailed as e:
-        raise HTTPException(status_code=503, detail=f"YouTube từ chối kết nối: {str(e)}")
+        raise HTTPException(503, f"YouTube từ chối kết nối: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tải danh sách phụ đề: {str(e)}")
+        raise HTTPException(500, f"Lỗi khi tải danh sách phụ đề: {e}")
 
+    # Pick best EN transcript
     transcript = None
-    # Prefer manual English → any manual → auto English → anything
     for finder in [
         lambda tl: tl.find_manually_created_transcript(['en', 'en-US', 'en-GB']),
         lambda tl: next((t for t in tl if not t.is_generated), None),
@@ -122,16 +130,25 @@ async def get_transcript(url: str):
             continue
 
     if not transcript:
-        raise HTTPException(status_code=404, detail="Không có phụ đề khả dụng cho video này.")
+        raise HTTPException(404, "Không có phụ đề khả dụng.")
 
     try:
-        raw = transcript.fetch()
+        en_raw = transcript.fetch()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tải nội dung phụ đề: {str(e)}")
+        raise HTTPException(500, f"Lỗi khi tải phụ đề: {e}")
 
-    segments = group_segments(raw)
+    segments = group_segments(en_raw)
     if not segments:
-        raise HTTPException(status_code=404, detail="Phụ đề trống hoặc không đọc được.")
+        raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")
+
+    # Fetch Vietnamese translation using YouTube's own translation service
+    translations: list[Optional[str]] = [None] * len(segments)
+    if not transcript.language_code.startswith('vi'):
+        try:
+            vi_raw = transcript.translate('vi').fetch()
+            translations = align_translations(segments, vi_raw)
+        except Exception:
+            pass  # translation unavailable for this video — silently skip
 
     return {
         "video_id": video_id,
@@ -139,55 +156,8 @@ async def get_transcript(url: str):
         "language_code": transcript.language_code,
         "is_generated": transcript.is_generated,
         "segments": segments,
+        "translations": translations,
     }
-
-
-class TranslateRequest(BaseModel):
-    texts: list[str]
-    target: str = "vi"
-
-
-def _translate_batch_google(texts: list[str], target: str) -> list[Optional[str]]:
-    from deep_translator import GoogleTranslator
-    translator = GoogleTranslator(source="auto", target=target)
-    results: list[Optional[str]] = []
-    for i in range(0, len(texts), 40):
-        chunk = texts[i : i + 40]
-        batch = translator.translate_batch(chunk)
-        results.extend(batch if batch else [None] * len(chunk))
-    return results
-
-
-def _translate_batch_mymemory(texts: list[str], target: str) -> list[Optional[str]]:
-    from deep_translator import MyMemoryTranslator
-    # MyMemory uses locale codes like "en-US"/"vi-VN"
-    lang_map = {"vi": "vi-VN", "en": "en-US", "fr": "fr-FR", "de": "de-DE", "ja": "ja-JP"}
-    tgt = lang_map.get(target, target)
-    translator = MyMemoryTranslator(source="en-US", target=tgt)
-    results: list[Optional[str]] = []
-    for text in texts:
-        try:
-            results.append(translator.translate(text))
-        except Exception:
-            results.append(None)
-    return results
-
-
-@app.post("/api/translate")
-async def translate_texts(body: TranslateRequest):
-    if not body.texts:
-        return {"translations": []}
-
-    # Try Google Translate first, fall back to MyMemory
-    for attempt in (_translate_batch_google, _translate_batch_mymemory):
-        try:
-            results = attempt(body.texts, body.target)
-            if any(r is not None for r in results):
-                return {"translations": results}
-        except Exception:
-            continue
-
-    return {"translations": [None] * len(body.texts), "error": "Translation unavailable"}
 
 
 if __name__ == "__main__":

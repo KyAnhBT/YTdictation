@@ -3,10 +3,10 @@ let player       = null;
 let ytReady      = false;
 let pendingId    = null;
 let segments     = [];
-let translations = [];   // parallel array: translations[i] = VI text or null
+let translations = [];   // parallel array: translations[i] = VI string or null
 let current      = 0;
 let pauseTimer   = null;
-let syncTimer    = null;  // polls player time for transcript highlight
+let syncTimer    = null;
 let scores       = {};
 let activeTab    = 'dict';
 
@@ -25,7 +25,7 @@ function createPlayer(videoId) {
     videoId,
     playerVars: { rel: 0, modestbranding: 1, fs: 1, playsinline: 1 },
     events: {
-      onReady:       () => { player.pauseVideo(); goTo(0); },
+      onReady: () => { player.pauseVideo(); goTo(0); },
       onStateChange: e => {
         if (e.data === YT.PlayerState.PLAYING)
           setStatus('playing', '▶ Đang phát đoạn ' + (current + 1) + '…');
@@ -77,7 +77,7 @@ function switchTab(tab) {
   if (tab === 'trans') highlightTransSeg(current, true);
 }
 
-/* ── CHECK ANSWER ───────────────────────────────────────── */
+/* ── CHECK ──────────────────────────────────────────────── */
 function checkAnswer() {
   const input    = $('dictInput').value;
   const expected = segments[current].text;
@@ -98,34 +98,26 @@ function revealAnswer() {
   scores[current] = scores[current] ?? 0;
   $('wordRow').innerHTML = expected.split(/\s+/)
     .map(w => `<span class="word word-revealed">${esc(w)}</span>`).join(' ');
-  $('resultStat').innerHTML = '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
+  $('resultStat').innerHTML =
+    '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
   $('resultArea').hidden = false;
   showTranslation(current);
   setStatus('checked', '✓ Đã xem đáp án');
   updateProgress();
 }
 
-/* ── SHOW TRANSLATION in dictation pane ─────────────────── */
+/* ── TRANSLATION DISPLAY (dictation pane) ───────────────── */
 function showTranslation(index) {
-  const viBlock = $('viBlock');
-  const viText  = $('viText');
-  if (translations[index]) {
-    viText.textContent = translations[index];
-    viText.className   = 'vi-text';
-    viBlock.hidden     = false;
-  } else if (translations.length > 0) {
-    // translations fetched but this one missing
-    viText.textContent = '';
-    viBlock.hidden     = true;
+  const vi = translations[index];
+  if (vi) {
+    $('viText').textContent = vi;
+    $('viBlock').hidden = false;
   } else {
-    // translations not yet fetched
-    viText.textContent = 'Đang dịch…';
-    viText.className   = 'vi-text loading';
-    viBlock.hidden     = false;
+    $('viBlock').hidden = true;
   }
 }
 
-/* ── COMPARE TEXT ───────────────────────────────────────── */
+/* ── COMPARE ────────────────────────────────────────────── */
 function normalize(s) {
   return s.toLowerCase().replace(/[^\w\s']/g, ' ').trim().split(/\s+/).filter(Boolean);
 }
@@ -135,22 +127,20 @@ function compare(input, expected) {
   const exp = normalize(expected);
   let correct = 0;
   const tokens = [];
-
   for (let i = 0; i < exp.length; i++) {
     if (inp[i] === exp[i]) { tokens.push({ word: exp[i], cls: 'word-correct' }); correct++; }
-    else if (inp[i] === undefined) tokens.push({ word: exp[i], cls: 'word-missing' });
-    else tokens.push({ word: inp[i], cls: 'word-incorrect' });
+    else if (!inp[i])      tokens.push({ word: exp[i], cls: 'word-missing' });
+    else                   tokens.push({ word: inp[i], cls: 'word-incorrect' });
   }
   for (let i = exp.length; i < inp.length; i++)
     tokens.push({ word: inp[i], cls: 'word-extra' });
-
   const accuracy = exp.length ? Math.round((correct / exp.length) * 100) : 0;
   return { tokens, accuracy, correct, total: exp.length };
 }
 
 function showResult(result) {
-  $('wordRow').innerHTML = result.tokens.map(t =>
-    `<span class="word ${t.cls}">${esc(t.word)}</span>`).join(' ');
+  $('wordRow').innerHTML = result.tokens
+    .map(t => `<span class="word ${t.cls}">${esc(t.word)}</span>`).join(' ');
   const chip = result.accuracy >= 80 ? 'acc-great' : result.accuracy >= 50 ? 'acc-ok' : 'acc-poor';
   $('resultStat').innerHTML =
     `<span class="acc-chip ${chip}">${result.accuracy}%</span>` +
@@ -158,26 +148,27 @@ function showResult(result) {
   $('resultArea').hidden = false;
   const emoji = result.accuracy === 100 ? '🎉 Hoàn hảo!'
               : result.accuracy >= 80   ? '👍 Rất tốt!'
-              : result.accuracy >= 50   ? '🙂 Khá ổn'   : '💪 Cố lên!';
+              : result.accuracy >= 50   ? '🙂 Khá ổn' : '💪 Cố lên!';
   setStatus('checked', `${emoji}  ${result.accuracy}% chính xác`);
 }
 
 function hideResult() {
   $('resultArea').hidden = true;
   $('wordRow').innerHTML = $('resultStat').innerHTML = '';
-  $('viBlock').hidden    = true;
+  $('viBlock').hidden = true;
 }
 
 /* ── PROGRESS ───────────────────────────────────────────── */
 function updateProgress() {
   const total = segments.length;
-  $('segCounter').textContent    = `${current + 1} / ${total}`;
-  $('progressFill').style.width  = `${((current + 1) / total) * 100}%`;
+  $('segCounter').textContent   = `${current + 1} / ${total}`;
+  $('progressFill').style.width = `${((current + 1) / total) * 100}%`;
   $('prevBtn').disabled = current === 0;
   $('nextBtn').disabled = current === total - 1;
   const vals = Object.values(scores);
   if (vals.length)
-    $('overallScore').textContent = `Điểm TB: ${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%`;
+    $('overallScore').textContent =
+      `Điểm TB: ${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%`;
 }
 
 /* ── STATUS ─────────────────────────────────────────────── */
@@ -186,28 +177,22 @@ function setStatus(type, msg) {
   $('statusText').textContent = msg;
 }
 
-/* ── TRANSCRIPT RENDERING ───────────────────────────────── */
+/* ── TRANSCRIPT ─────────────────────────────────────────── */
 function renderTranscriptList() {
+  const hasVI = translations.some(t => t);
   $('trList').innerHTML = segments.map((seg, i) => {
     const vi = translations[i];
-    return `<div class="tr-seg${i === current ? ' active' : ''}" data-idx="${i}" onclick="trClick(${i})">
+    return `<div class="tr-seg${i === current ? ' active' : ''}" data-idx="${i}"
+                 onclick="trClick(${i})">
       <div class="tr-time">${fmtTime(seg.start)}</div>
       <div class="tr-body">
         <div class="tr-en">${esc(seg.text)}</div>
-        <div class="tr-vi ${vi ? '' : 'tr-pending'}">${vi ? esc(vi) : '…'}</div>
+        ${hasVI
+          ? `<div class="tr-vi${vi ? '' : ' tr-pending'}">${vi ? esc(vi) : '—'}</div>`
+          : ''}
       </div>
     </div>`;
   }).join('');
-}
-
-function updateTranslationRows() {
-  translations.forEach((t, i) => {
-    if (!t) return;
-    const row = $('trList').querySelector(`[data-idx="${i}"] .tr-vi`);
-    if (row) { row.textContent = t; row.classList.remove('tr-pending'); }
-    // also update vi-block if this is the current segment and result is visible
-    if (i === current && !$('viBlock').hidden) showTranslation(i);
-  });
 }
 
 function highlightTransSeg(index, scroll = false) {
@@ -218,55 +203,24 @@ function highlightTransSeg(index, scroll = false) {
 }
 
 function trClick(index) {
-  // clicking in transcript tab: navigate to that segment
-  switchTab('trans');   // stay in transcript
   goTo(index);
+  switchTab('trans');
 }
 
-/* ── REAL-TIME TRANSCRIPT SYNC ──────────────────────────── */
+/* ── REAL-TIME SYNC (transcript highlight follows playback) */
 function startSync() {
   clearInterval(syncTimer);
   syncTimer = setInterval(() => {
     if (!player || typeof player.getPlayerState !== 'function') return;
     if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;
     const time = player.getCurrentTime();
-    const idx = segments.findIndex(s => time >= s.start && time < s.start + s.duration);
+    const idx  = segments.findIndex(s => time >= s.start && time < s.start + s.duration);
     if (idx !== -1 && idx !== current) {
       current = idx;
       updateProgress();
       if (activeTab === 'trans') highlightTransSeg(current, true);
     }
   }, 400);
-}
-
-/* ── TRANSLATION FETCHING ───────────────────────────────── */
-async function fetchTranslations(langCode) {
-  if (langCode && langCode.startsWith('vi')) {
-    // already Vietnamese, copy as-is
-    translations = segments.map(s => s.text);
-    updateTranslationRows();
-    return;
-  }
-
-  $('trLoadBadge').hidden = false;
-
-  try {
-    const texts = segments.map(s => s.text);
-    const res   = await fetch('/api/translate', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ texts, target: 'vi' }),
-    });
-    const data = await res.json();
-    translations = data.translations || [];
-    updateTranslationRows();
-    // If result area is showing, update translation
-    if (!$('resultArea').hidden) showTranslation(current);
-  } catch (e) {
-    console.warn('Translation fetch failed:', e);
-  } finally {
-    $('trLoadBadge').hidden = true;
-  }
 }
 
 /* ── FORM SUBMIT ────────────────────────────────────────── */
@@ -283,7 +237,7 @@ $('urlForm').addEventListener('submit', async e => {
     if (!res.ok) throw new Error(data.detail || 'Lỗi không xác định');
 
     segments     = data.segments;
-    translations = [];
+    translations = data.translations || [];
     current      = 0;
     scores       = {};
 
@@ -294,16 +248,12 @@ $('urlForm').addEventListener('submit', async e => {
       `<span class="badge">${esc(data.language)}</span>` +
       (data.is_generated ? `<span class="badge badge-auto">Auto-generated</span>` : '');
 
+    // Build transcript list immediately (translations already available)
+    renderTranscriptList();
+    startSync();
     initPlayer(data.video_id);
     updateProgress();
     setStatus('', 'Đang khởi động trình phát…');
-
-    // Render transcript list (without translations yet)
-    renderTranscriptList();
-    startSync();
-
-    // Fetch translations in background
-    fetchTranslations(data.language_code);
 
   } catch (err) {
     $('errorMsg').textContent = err.message;
@@ -313,7 +263,7 @@ $('urlForm').addEventListener('submit', async e => {
   }
 });
 
-/* ── BUTTON EVENTS ──────────────────────────────────────── */
+/* ── BUTTONS ────────────────────────────────────────────── */
 $('checkBtn').addEventListener('click',  checkAnswer);
 $('revealBtn').addEventListener('click', revealAnswer);
 $('clearBtn').addEventListener('click',  () => {
@@ -335,10 +285,10 @@ $('dictInput').addEventListener('keydown', e => {
 
 /* ── HELPERS ────────────────────────────────────────────── */
 function setLoading(on) {
-  $('btnLabel').hidden     = on;
-  $('btnSpinner').hidden   = !on;
-  $('startBtn').disabled   = on;
-  $('videoUrl').disabled   = on;
+  $('btnLabel').hidden   = on;
+  $('btnSpinner').hidden = !on;
+  $('startBtn').disabled = on;
+  $('videoUrl').disabled = on;
 }
 
 function fmtTime(s) {
@@ -348,6 +298,6 @@ function fmtTime(s) {
 
 function esc(s) {
   return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

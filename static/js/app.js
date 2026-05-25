@@ -190,10 +190,11 @@ function renderTranscriptList() {
     const vi = translations[i];
     return `<div class="tr-seg${i === current ? ' active' : ''}" data-idx="${i}"
                  onclick="trClick(${i})">
-      <div class="tr-time">${fmtTime(seg.start)}</div>
+      <button class="tr-play-btn" title="${fmtTime(seg.start)}"
+              onclick="event.stopPropagation(); trPlay(${i})">&#9654;</button>
       <div class="tr-body">
         <div class="tr-en">${esc(seg.text)}</div>
-        ${hasVI || vi !== undefined
+        ${hasVI
           ? `<div class="tr-vi${vi ? '' : ' tr-pending'}">${vi ? esc(vi) : '…'}</div>`
           : ''}
       </div>
@@ -203,10 +204,23 @@ function renderTranscriptList() {
 
 /* Called after background translation arrives — update only VI rows */
 function patchTranslationRows() {
+  const hasVI = translations.some(t => t);
+  // Add vi row to segments that don't have one yet
   translations.forEach((vi, i) => {
-    if (!vi) return;
-    const row = $('trList').querySelector(`[data-idx="${i}"] .tr-vi`);
-    if (row) { row.textContent = vi; row.classList.remove('tr-pending'); }
+    const row = $('trList').querySelector(`[data-idx="${i}"]`);
+    if (!row) return;
+    let viEl = row.querySelector('.tr-vi');
+    if (!viEl && hasVI) {
+      // Insert vi div if missing (first time translations arrive)
+      const body = row.querySelector('.tr-body');
+      viEl = document.createElement('div');
+      viEl.className = 'tr-vi tr-pending';
+      body.appendChild(viEl);
+    }
+    if (viEl && vi) {
+      viEl.textContent = vi;
+      viEl.classList.remove('tr-pending');
+    }
   });
   // refresh vi-block if result is currently visible
   if (!$('resultArea').hidden) showTranslation(current);
@@ -215,13 +229,22 @@ function patchTranslationRows() {
 function highlightTransSeg(index, scroll = false) {
   const rows = $('trList').querySelectorAll('.tr-seg');
   rows.forEach((r, i) => r.classList.toggle('active', i === index));
-  if (scroll && rows[index])
+  const doScroll = scroll && $('autoScroll') && $('autoScroll').checked;
+  if (doScroll && rows[index])
     rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+/* Click row → navigate; play button → play that segment */
 function trClick(index) {
+  current = index;
+  updateProgress();
+  highlightTransSeg(index, true);
+  // seek video to this segment without auto-pausing (just preview position)
+  if (player) player.seekTo(segments[index].start, true);
+}
+
+function trPlay(index) {
   goTo(index);
-  if (activeTab !== 'trans') switchTab('trans');
 }
 
 /* ── REAL-TIME SYNC ─────────────────────────────────────── */
@@ -316,8 +339,11 @@ $('urlForm').addEventListener('submit', async e => {
 /* ── BUTTONS ────────────────────────────────────────────── */
 $('checkBtn').addEventListener('click',  checkAnswer);
 $('revealBtn').addEventListener('click', revealAnswer);
-$('clearBtn').addEventListener('click',  () => {
-  $('dictInput').value = ''; hideResult(); $('dictInput').focus();
+$('clearBtn').addEventListener('click', () => {
+  $('dictInput').value = '';
+  hideResult();           // hides resultArea + viBlock inside it
+  $('viBlock').hidden = true;  // ensure VI is gone even if shown separately
+  $('dictInput').focus();
 });
 $('replayBtn').addEventListener('click', () => playSeg(current));
 $('prevBtn').addEventListener('click',   () => goTo(current - 1));

@@ -301,70 +301,88 @@ kbd {
 }
 
 /* ── TRANSCRIPT PANE ────────────────────────────────────── */
-.tr-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 1.6rem;
-}
-.tr-hint { font-size: .8rem; color: var(--muted); }
-.tr-loading-badge {
-  font-size: .78rem;
-  background: #fef9c3; color: #92400e;
-  padding: .2rem .6rem; border-radius: 12px;
-  border: 1px solid #fde68a;
-  animation: pulse 1.4s ease-in-out infinite;
-}
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 
+/* paneTrans is a flex column: list grows, footer stays at bottom */
+#paneTrans {
+  padding: 0;           /* override .card padding so list touches edges */
+  gap: 0;
+  overflow: hidden;
+}
+
 .tr-list {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 440px;
   overflow-y: auto;
-  padding-right: 2px;
   scroll-behavior: smooth;
+  /* fallback max-height when NOT in transcript-mode */
+  max-height: 480px;
 }
-/* custom scrollbar */
-.tr-list::-webkit-scrollbar { width: 5px; }
+.tr-list::-webkit-scrollbar { width: 6px; }
 .tr-list::-webkit-scrollbar-track { background: transparent; }
 .tr-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
 /* each segment row */
 .tr-seg {
   display: flex;
-  gap: .75rem;
-  padding: .55rem .7rem;
-  border-radius: 8px;
+  align-items: center;
+  gap: .9rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--border);
   border-left: 3px solid transparent;
   cursor: pointer;
   transition: background var(--trans), border-color var(--trans);
   scroll-margin: 60px;
 }
-.tr-seg:hover { background: #f1f5f9; }
+.tr-seg:last-child { border-bottom: none; }
+.tr-seg:hover { background: #f8fafc; }
 .tr-seg.active {
   background: #eff6ff;
   border-left-color: var(--primary);
 }
 
-.tr-time {
-  font-size: .72rem;
-  color: var(--muted);
-  min-width: 36px;
-  padding-top: 3px;
-  font-variant-numeric: tabular-nums;
+/* circular play button */
+.tr-play-btn {
   flex-shrink: 0;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  background: transparent;
+  color: var(--muted);
+  font-size: .7rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--trans), color var(--trans), border-color var(--trans);
+  padding: 0;
+  line-height: 1;
 }
-.tr-body { display: flex; flex-direction: column; gap: .15rem; }
+.tr-play-btn:hover,
+.tr-seg.active .tr-play-btn {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.tr-body { display: flex; flex-direction: column; gap: .2rem; flex: 1; min-width: 0; }
 .tr-en { font-size: .9rem; line-height: 1.5; color: var(--text); }
 .tr-vi {
-  font-size: .82rem;
-  line-height: 1.4;
-  color: #2563eb;
-  font-style: italic;
+  font-size: .82rem; line-height: 1.4;
+  color: #2563eb; font-style: italic;
 }
 .tr-vi.tr-pending { color: #94a3b8; font-style: normal; }
+
+/* footer with auto-scroll toggle */
+.tr-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: .55rem 1rem;
+  border-top: 1px solid var(--border);
+  background: #fafafa;
+  border-radius: 0 0 var(--radius) var(--radius);
+  flex-shrink: 0;
+}
 
 /* ── FOOTER ─────────────────────────────────────────────── */
 .footer {

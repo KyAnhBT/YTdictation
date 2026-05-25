@@ -122,11 +122,14 @@
 
         <!-- ── TRANSCRIPT PANE ─────────────────────────────── -->
         <div class="tab-pane card" id="paneTrans" hidden>
-          <div class="tr-toolbar">
-            <span class="tr-hint">Nhấn vào câu bất kỳ để phát từ vị trí đó</span>
-          </div>
           <div class="tr-list" id="trList">
             <!-- populated by JS -->
+          </div>
+          <div class="tr-footer">
+            <label class="toggle">
+              <input type="checkbox" id="autoScroll" checked />
+              <span>Auto scroll</span>
+            </label>
           </div>
         </div><!-- /paneTrans -->
 

@@ -74,8 +74,8 @@ function switchTab(tab) {
   activeTab = tab;
   $('tabBtnDict').classList.toggle('active', tab === 'dict');
   $('tabBtnTrans').classList.toggle('active', tab === 'trans');
-  $('paneDict').hidden  = tab !== 'dict';
-  $('paneTrans').hidden = tab !== 'trans';
+  $('paneDict').style.display  = tab === 'dict'  ? 'flex' : 'none';
+  $('paneTrans').style.display = tab === 'trans' ? 'flex' : 'none';
   if (tab === 'trans') highlightTransSeg(current, true);
 }
 

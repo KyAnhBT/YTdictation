@@ -17,7 +17,12 @@ app = FastAPI(title="YT Dictation")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-_yt_api = YouTubeTranscriptApi()
+# Use cookies.txt if present (Netscape format — export via browser extension)
+_cookies_path = "cookies.txt" if os.path.exists("cookies.txt") else None
+_yt_api = YouTubeTranscriptApi(cookies=_cookies_path) if _cookies_path else YouTubeTranscriptApi()
+
+# In-memory transcript cache — same video never fetched twice per session
+_cache: dict = {}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -250,6 +255,9 @@ async def get_transcript(url: str):
     if not video_id:
         raise HTTPException(400, "URL YouTube không hợp lệ.")
 
+    if video_id in _cache:
+        return _cache[video_id]
+
     # ── Primary path: youtube-transcript-api ──────────────────
     primary_error = None
     segments = None
@@ -321,16 +329,17 @@ async def get_transcript(url: str):
     if not segments:
         # All three paths failed
         msg = primary_error or "Không tìm thấy phụ đề cho video này."
-        if 'blocking' in msg or 'IP' in msg or 'cloud' in msg.lower():
-            raise HTTPException(503,
-                "Không thể lấy phụ đề qua mọi phương thức. "
-                "Vui lòng chạy ứng dụng trên máy tính cá nhân để dùng ổn định hơn.")
+        if 'blocking' in msg or 'IP' in msg or 'too many' in msg.lower() or '429' in msg:
+            hint = " Đặt file cookies.txt vào thư mục app để dùng cookie YouTube của bạn." if not _cookies_path else ""
+            raise HTTPException(429,
+                f"YouTube tạm thời chặn IP do quá nhiều request.{hint} "
+                "Thử lại sau vài phút hoặc dùng video khác trước.")
         raise HTTPException(500, f"Lỗi khi tải phụ đề: {msg}")
 
     if not segments:
         raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")
 
-    return {
+    response = {
         "video_id": video_id,
         "language": lang,
         "language_code": lang_code,
@@ -339,6 +348,8 @@ async def get_transcript(url: str):
         "translations": translations,
         "need_translate": not has_yt_vi and not lang_code.startswith('vi'),
     }
+    _cache[video_id] = response
+    return response
 
 
 # ── translation endpoint ──────────────────────────────────────────────────────

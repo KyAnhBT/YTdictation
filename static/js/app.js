@@ -336,6 +336,10 @@ $('urlForm').addEventListener('submit', async e => {
   } catch (err) {
     $('errorMsg').textContent = err.message;
     $('errorMsg').hidden = false;
+    $('workspace').hidden = true;
+    segments = [];
+    translations = [];
+    clearInterval(syncTimer);
   } finally {
     setLoading(false);
   }

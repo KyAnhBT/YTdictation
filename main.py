@@ -3,16 +3,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import (
-    TranscriptsDisabled,
-    NoTranscriptFound,
-    VideoUnavailable,
-    YouTubeRequestFailed,
-)
 from pydantic import BaseModel
 import asyncio
 import re
 import html
+import json
+import tempfile
+import os
 from typing import Optional
 
 app = FastAPI(title="YT Dictation")
@@ -90,6 +87,94 @@ def align_translations(en_segments: list[dict], vi_raw) -> list[Optional[str]]:
     return out
 
 
+# ── yt-dlp fallback ───────────────────────────────────────────────────────────
+
+def _ytdlp_fetch_subtitles(video_id: str) -> Optional[dict]:
+    """
+    Fallback: use yt-dlp to download subtitle JSON and return
+    { 'lang': str, 'lang_code': str, 'is_generated': bool, 'snippets': list[dict] }
+    Returns None if yt-dlp is unavailable or no subtitles found.
+    """
+    try:
+        import yt_dlp
+    except ImportError:
+        return None
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ydl_opts = {
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en', 'en-US', 'en-GB'],
+            'subtitlesformat': 'json3',
+            'outtmpl': os.path.join(tmpdir, '%(id)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception:
+            return None
+
+        # Determine which subtitle was actually downloaded via info dict
+        sub_file = None
+        is_generated = False
+        lang_code = 'en'
+        lang = 'English'
+
+        # Check manual subtitles first, then auto-generated
+        for lc in ['en', 'en-US', 'en-GB']:
+            if info.get('subtitles', {}).get(lc):
+                lang_code = lc
+                lang = info['subtitles'][lc][0].get('name', 'English')
+                is_generated = False
+                break
+            if info.get('automatic_captions', {}).get(lc):
+                lang_code = lc
+                lang = info['automatic_captions'][lc][0].get('name', 'English (auto)')
+                is_generated = True
+                break
+
+        for fname in os.listdir(tmpdir):
+            if fname.endswith('.json3'):
+                sub_file = os.path.join(tmpdir, fname)
+                break
+
+        if not sub_file:
+            return None
+
+        try:
+            with open(sub_file, encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            return None
+
+        # json3 format: { "events": [ { "tStartMs": ..., "dDurationMs": ..., "segs": [...] } ] }
+        snippets = []
+        for ev in data.get('events', []):
+            if 'segs' not in ev:
+                continue
+            text = ''.join(s.get('utf8', '') for s in ev['segs']).strip()
+            text = clean_text(text)
+            if not text or text == '\n':
+                continue
+            start = ev.get('tStartMs', 0) / 1000.0
+            dur   = ev.get('dDurationMs', 2000) / 1000.0
+            snippets.append({'text': text, 'start': start, 'duration': dur})
+
+        if not snippets:
+            return None
+
+        return {
+            'lang': lang,
+            'lang_code': lang_code,
+            'is_generated': is_generated,
+            'snippets': snippets,
+        }
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -103,66 +188,84 @@ async def get_transcript(url: str):
     if not video_id:
         raise HTTPException(400, "URL YouTube không hợp lệ.")
 
+    # ── Primary path: youtube-transcript-api ──────────────────
+    primary_error = None
+    segments = None
+    translations: list[Optional[str]] = []
+    lang = 'English'
+    lang_code = 'en'
+    is_generated = True
+    has_yt_vi = False
+
     try:
         transcript_list = _yt_api.list(video_id)
-    except TranscriptsDisabled:
-        raise HTTPException(404, "Video này đã tắt phụ đề.")
-    except NoTranscriptFound:
-        raise HTTPException(404, "Không tìm thấy phụ đề cho video này.")
-    except VideoUnavailable:
-        raise HTTPException(404, "Video không tồn tại hoặc không thể truy cập.")
-    except YouTubeRequestFailed as e:
-        raise HTTPException(503, f"YouTube từ chối kết nối: {e}")
+
+        transcript = None
+        for finder in [
+            lambda tl: tl.find_manually_created_transcript(['en', 'en-US', 'en-GB']),
+            lambda tl: next((t for t in tl if not t.is_generated), None),
+            lambda tl: tl.find_generated_transcript(['en', 'en-US', 'en-GB']),
+            lambda tl: next(iter(tl), None),
+        ]:
+            try:
+                t = finder(transcript_list)
+                if t:
+                    transcript = t
+                    break
+            except Exception:
+                continue
+
+        if not transcript:
+            raise ValueError("Không có phụ đề khả dụng.")
+
+        en_raw  = transcript.fetch()
+        segments = group_segments(en_raw)
+        lang     = transcript.language
+        lang_code = transcript.language_code
+        is_generated = transcript.is_generated
+
+        translations = [None] * len(segments)
+        if not lang_code.startswith('vi'):
+            try:
+                vi_raw = transcript.translate('vi').fetch()
+                translations = align_translations(segments, vi_raw)
+                has_yt_vi = any(t for t in translations)
+            except Exception:
+                pass
+
     except Exception as e:
-        raise HTTPException(500, f"Lỗi khi tải danh sách phụ đề: {e}")
+        primary_error = str(e)
 
-    transcript = None
-    for finder in [
-        lambda tl: tl.find_manually_created_transcript(['en', 'en-US', 'en-GB']),
-        lambda tl: next((t for t in tl if not t.is_generated), None),
-        lambda tl: tl.find_generated_transcript(['en', 'en-US', 'en-GB']),
-        lambda tl: next(iter(tl), None),
-    ]:
-        try:
-            t = finder(transcript_list)
-            if t:
-                transcript = t
-                break
-        except Exception:
-            continue
+    # ── Fallback: yt-dlp ──────────────────────────────────────
+    if not segments:
+        loop = asyncio.get_event_loop()
+        ytdlp_result = await loop.run_in_executor(None, _ytdlp_fetch_subtitles, video_id)
+        if ytdlp_result:
+            segments    = group_segments(ytdlp_result['snippets'])
+            lang        = ytdlp_result['lang']
+            lang_code   = ytdlp_result['lang_code']
+            is_generated = ytdlp_result['is_generated']
+            translations = [None] * len(segments)
+        else:
+            # Both paths failed — surface the original error
+            msg = primary_error or "Không tìm thấy phụ đề cho video này."
+            if 'blocking' in msg or 'IP' in msg or 'cloud' in msg.lower():
+                raise HTTPException(503,
+                    "YouTube chặn IP của server khi lấy phụ đề. "
+                    "Vui lòng chạy ứng dụng trên máy tính cá nhân thay vì cloud server.")
+            raise HTTPException(500, f"Lỗi khi tải phụ đề: {msg}")
 
-    if not transcript:
-        raise HTTPException(404, "Không có phụ đề khả dụng.")
-
-    try:
-        en_raw = transcript.fetch()
-    except Exception as e:
-        raise HTTPException(500, f"Lỗi khi tải phụ đề: {e}")
-
-    segments = group_segments(en_raw)
     if not segments:
         raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")
 
-    # Try YouTube's built-in VI translation (instant, no extra cost)
-    translations: list[Optional[str]] = [None] * len(segments)
-    has_yt_vi = False
-    if not transcript.language_code.startswith('vi'):
-        try:
-            vi_raw = transcript.translate('vi').fetch()
-            translations = align_translations(segments, vi_raw)
-            has_yt_vi = any(t for t in translations)
-        except Exception:
-            pass
-
     return {
         "video_id": video_id,
-        "language": transcript.language,
-        "language_code": transcript.language_code,
-        "is_generated": transcript.is_generated,
+        "language": lang,
+        "language_code": lang_code,
+        "is_generated": is_generated,
         "segments": segments,
         "translations": translations,
-        # tells frontend whether to fetch translations separately
-        "need_translate": not has_yt_vi and not transcript.language_code.startswith('vi'),
+        "need_translate": not has_yt_vi and not lang_code.startswith('vi'),
     }
 
 

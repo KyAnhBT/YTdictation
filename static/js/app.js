@@ -232,11 +232,14 @@ function patchTranslationRows() {
 }
 
 function highlightTransSeg(index, scroll = false) {
-  const rows = $('trList').querySelectorAll('.tr-seg');
+  const list = $('trList');
+  const rows = list.querySelectorAll('.tr-seg');
   rows.forEach((r, i) => r.classList.toggle('active', i === index));
-  const doScroll = scroll && $('autoScroll') && $('autoScroll').checked;
-  if (doScroll && rows[index])
-    rows[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (scroll && $('autoScroll') && $('autoScroll').checked && rows[index]) {
+    // Keep active row at 2nd position: scroll so the previous row sits at top
+    const prevRow = index > 0 ? rows[index - 1] : null;
+    list.scrollTo({ top: prevRow ? prevRow.offsetTop : 0, behavior: 'smooth' });
+  }
 }
 
 /* Click row → navigate; play button → play that segment */

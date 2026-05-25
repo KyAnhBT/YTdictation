@@ -11,6 +11,7 @@ let syncTimer    = null;
 let scores       = {};
 let activeTab    = 'dict';
 let viVisible    = false;
+let wordIdx      = 0;   // word-by-word: index of next expected word
 
 /* ── DOM ────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -59,13 +60,14 @@ function goTo(index) {
   if (index < 0 || index >= segments.length) return;
   clearTimeout(pauseTimer);
   current = index;
+  wordIdx = 0;
   hideResult();
   $('dictInput').value = '';
   $('dictInput').disabled = false;
   $('dictInput').focus();
   updateProgress();
-  setStatus('', 'Đang tải đoạn…');
   playSeg(current);
+  renderMasked(index);
   if (activeTab === 'trans') highlightTransSeg(current, true);
 }
 
@@ -79,28 +81,72 @@ function switchTab(tab) {
   if (tab === 'trans') highlightTransSeg(current, true);
 }
 
-/* ── CHECK ──────────────────────────────────────────────── */
-function checkAnswer() {
-  const input    = $('dictInput').value;
-  const expected = segments[current].text;
-  if (!input.trim()) { $('dictInput').focus(); return; }
-  const result = compare(input, expected);
-  scores[current] = result.accuracy;
-  showResult(result);
-  // Show Vietnamese translation only when the answer is fully correct
-  if (result.accuracy === 100) showTranslation(current);
+/* ── WORD-BY-WORD CHECK ─────────────────────────────────── */
+function renderMasked(segIndex) {
+  if (!segments[segIndex]) return;
+  const exp = normalize(segments[segIndex].text);
+  const raw = segments[segIndex].text.trim().split(/\s+/);
+  $('wordRow').innerHTML = raw.map((w, i) => {
+    if (i < wordIdx)
+      return `<span class="word word-correct">${esc(w)}</span>`;
+    const len = exp[i] ? exp[i].length : w.replace(/[^\w']/g, '').length;
+    return `<span class="word word-masked">${'*'.repeat(Math.max(len, 1))}</span>`;
+  }).join(' ');
+  $('resultStat').innerHTML = wordIdx > 0
+    ? `<span style="color:var(--muted);font-size:.82rem">${wordIdx} / ${exp.length} từ</span>`
+    : '';
+  $('resultArea').hidden = false;
+}
+
+function checkCurrentWord() {
+  const val = $('dictInput').value;
+  if (!val.endsWith(' ')) return;
+  const typed = val.trim().split(/\s+/).filter(Boolean);
+  if (!typed.length) return;
+  const last = typed[typed.length - 1].toLowerCase().replace(/[^\w']/g, '');
+  const exp  = normalize(segments[current].text);
+  if (wordIdx >= exp.length) return;
+
+  if (last === exp[wordIdx]) {
+    wordIdx++;
+    $('dictInput').value = '';
+    renderMasked(current);
+    if (wordIdx >= exp.length) {
+      scores[current] = 100;
+      updateProgress();
+      setStatus('checked', '🎉 Hoàn hảo!');
+      showTranslation(current);
+      if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
+    } else {
+      setStatus('playing', '✓ Đúng!');
+    }
+  } else {
+    setStatus('waiting', '⚠ Sai rồi, thử lại!');
+  }
+}
+
+function skipWord() {
+  const exp = normalize(segments[current].text);
+  if (wordIdx >= exp.length) return;
+  scores[current] = scores[current] ?? 0;
+  wordIdx++;
+  $('dictInput').value = '';
+  renderMasked(current);
   updateProgress();
-  if (result.accuracy === 100 && $('autoAdvance').checked)
-    setTimeout(() => goTo(current + 1), 1400);
+  if (wordIdx >= exp.length) {
+    setStatus('checked', '✓ Đã skip hết');
+    showTranslation(current);
+  } else {
+    setStatus('checked', '↩ Đã skip');
+  }
 }
 
 function revealAnswer() {
-  const expected = segments[current].text;
+  const raw = segments[current].text.trim().split(/\s+/);
+  wordIdx = normalize(segments[current].text).length;
   scores[current] = scores[current] ?? 0;
-  $('wordRow').innerHTML = expected.split(/\s+/)
-    .map(w => `<span class="word word-revealed">${esc(w)}</span>`).join(' ');
-  $('resultStat').innerHTML =
-    '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
+  $('wordRow').innerHTML = raw.map(w => `<span class="word word-revealed">${esc(w)}</span>`).join(' ');
+  $('resultStat').innerHTML = '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
   $('resultArea').hidden = false;
   showTranslation(current);
   setStatus('checked', '✓ Đã xem đáp án');
@@ -163,7 +209,7 @@ function showResult(result) {
 }
 
 function hideResult() {
-  $('resultArea').hidden = true;
+  $('resultArea').style.display = 'none';
   $('wordRow').innerHTML = $('resultStat').innerHTML = '';
   $('viBlock').hidden = true;
   viVisible = false;
@@ -318,6 +364,7 @@ $('urlForm').addEventListener('submit', async e => {
     translations = data.translations || new Array(segments.length).fill(null);
     current      = 0;
     scores       = {};
+    wordIdx      = 0;
     hideResult();
 
     $('workspace').hidden = false;
@@ -350,12 +397,16 @@ $('urlForm').addEventListener('submit', async e => {
 });
 
 /* ── BUTTONS ────────────────────────────────────────────── */
-$('checkBtn').addEventListener('click',  checkAnswer);
+$('checkBtn').addEventListener('click',  skipWord);
 $('revealBtn').addEventListener('click', revealAnswer);
 $('clearBtn').addEventListener('click', () => {
+  wordIdx = 0;
   $('dictInput').value = '';
-  hideResult();           // hides resultArea + viBlock inside it
-  $('viBlock').hidden = true;  // ensure VI is gone even if shown separately
+  $('viBlock').hidden = true;
+  viVisible = false;
+  renderMasked(current);
+  $('resultStat').innerHTML = '';
+  setStatus('', '');
   $('dictInput').focus();
 });
 $('replayBtn').addEventListener('click', () => playSeg(current));
@@ -363,8 +414,10 @@ $('prevBtn').addEventListener('click',   () => goTo(current - 1));
 $('nextBtn').addEventListener('click',   () => goTo(current + 1));
 
 /* ── KEYBOARD ───────────────────────────────────────────── */
+$('dictInput').addEventListener('input', () => checkCurrentWord());
+
 $('dictInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); checkAnswer(); return; }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); skipWord(); return; }
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'r' || e.key === 'R') { e.preventDefault(); playSeg(current); }
     if (e.key === 'ArrowRight')          { e.preventDefault(); goTo(current + 1); }

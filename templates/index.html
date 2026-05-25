@@ -96,13 +96,13 @@
           </div>
 
           <div class="action-row">
-            <button class="btn btn-success" id="checkBtn">✓ Kiểm tra</button>
             <button class="btn btn-warn"    id="revealBtn">👁 Xem đáp án</button>
-            <button class="btn btn-ghost"   id="clearBtn">✕ Xóa</button>
+            <button class="btn btn-outline" id="checkBtn">⏭ Skip từ</button>
+            <button class="btn btn-ghost"   id="clearBtn">↺ Thử lại</button>
           </div>
 
-          <!-- result + translation -->
-          <div class="result-area" id="resultArea" hidden>
+          <!-- masked answer + translation -->
+          <div class="result-area" id="resultArea" style="display:none">
             <div class="word-row"   id="wordRow"></div>
             <div class="result-stat" id="resultStat"></div>
             <div class="vi-block"   id="viBlock" hidden>
@@ -112,10 +112,10 @@
           </div>
 
           <div class="shortcuts">
-            <kbd>Enter</kbd> kiểm tra &nbsp;·&nbsp;
+            <kbd>Space</kbd> kiểm tra từ &nbsp;·&nbsp;
+            <kbd>Enter</kbd> skip từ &nbsp;·&nbsp;
             <kbd>Ctrl+R</kbd> phát lại &nbsp;·&nbsp;
-            <kbd>Ctrl+→</kbd> tiếp &nbsp;·&nbsp;
-            <kbd>Ctrl+←</kbd> trước
+            <kbd>Ctrl+→</kbd> tiếp
           </div>
 
         </div><!-- /paneDict -->

@@ -10,6 +10,7 @@ let pauseTimer   = null;
 let syncTimer    = null;
 let scores       = {};
 let activeTab    = 'dict';
+let viVisible    = false;
 
 /* ── DOM ────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -120,13 +121,15 @@ function showTranslation(index) {
     $('viText').textContent = vi;
     $('viText').className   = 'vi-text';
     $('viBlock').hidden     = false;
+    viVisible = true;
   } else if (translations.length > 0 && translations.every(t => t === null)) {
-    // still loading — show placeholder
     $('viText').textContent = 'Đang dịch…';
     $('viText').className   = 'vi-text loading';
     $('viBlock').hidden     = false;
+    viVisible = true;
   } else {
     $('viBlock').hidden = true;
+    viVisible = false;
   }
 }
 
@@ -168,6 +171,7 @@ function hideResult() {
   $('resultArea').hidden = true;
   $('wordRow').innerHTML = $('resultStat').innerHTML = '';
   $('viBlock').hidden = true;
+  viVisible = false;
 }
 
 /* ── PROGRESS ───────────────────────────────────────────── */
@@ -228,8 +232,8 @@ function patchTranslationRows() {
       viEl.classList.remove('tr-pending');
     }
   });
-  // refresh vi-block if result is currently visible
-  if (!$('resultArea').hidden) showTranslation(current);
+  // refresh vi-block only if it was already legitimately visible
+  if (!$('resultArea').hidden && viVisible) showTranslation(current);
 }
 
 function highlightTransSeg(index, scroll = false) {
@@ -243,9 +247,9 @@ function highlightTransSeg(index, scroll = false) {
 /* Click row → navigate; play button → play that segment */
 function trClick(index) {
   current = index;
+  hideResult();
   updateProgress();
   highlightTransSeg(index, true);
-  // seek video to this segment without auto-pausing (just preview position)
   if (player) player.seekTo(segments[index].start, true);
 }
 

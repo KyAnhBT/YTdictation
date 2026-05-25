@@ -105,35 +105,16 @@ function checkSentence() {
   const typed = val ? normalize(val) : [];
   const raw   = segments[current].text.trim().split(/\s+/);
   const exp   = normalize(segments[current].text);
-  if (wordIdx >= exp.length) return;
 
-  // Try matching from exp[wordIdx] (continue from current position)
-  let matchFromCurrent = 0;
-  for (let i = 0; i < typed.length && (wordIdx + i) < exp.length; i++) {
-    if (typed[i] === exp[wordIdx + i]) matchFromCurrent++;
-    else break;
-  }
-
-  // Also try matching from exp[0] (user re-typed from the beginning)
-  let matchFromStart = 0;
+  // Always check from exp[0]: user must type the full sentence from the start
+  let matched = 0;
   for (let i = 0; i < typed.length && i < exp.length; i++) {
-    if (typed[i] === exp[i]) matchFromStart++;
+    if (typed[i] === exp[i]) matched++;
     else break;
   }
 
-  // Use whichever gives more total progress
-  let newWordIdx, consumed;
-  if (matchFromStart > wordIdx + matchFromCurrent) {
-    newWordIdx = matchFromStart;
-    consumed   = matchFromStart;
-  } else {
-    newWordIdx = wordIdx + matchFromCurrent;
-    consumed   = matchFromCurrent;
-  }
-
-  const gained = newWordIdx - wordIdx;
-  wordIdx = newWordIdx;
-  $('dictInput').value = typed.slice(consumed).join(' ');
+  wordIdx = matched;
+  $('dictInput').value = typed.slice(matched).join(' ');
 
   if (wordIdx >= exp.length) {
     scores[current] = 100;
@@ -433,6 +414,10 @@ $('prevBtn').addEventListener('click',   () => goTo(current - 1));
 $('nextBtn').addEventListener('click',   () => goTo(current + 1));
 
 /* ── KEYBOARD ───────────────────────────────────────────── */
+$('dictInput').addEventListener('input', () => {
+  $('resultArea').style.display = 'none';
+});
+
 $('dictInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); checkSentence(); return; }
   if (e.ctrlKey || e.metaKey) {

@@ -261,6 +261,7 @@ body {
 .word-missing   { background: #fef9c3; color: #92400e; font-style: italic; }
 .word-extra     { background: #fce7f3; color: #be185d; }
 .word-revealed  { background: #e0e7ff; color: #3730a3; }
+.word-hint      { background: #2563eb; color: #fff; font-weight: 700; }
 .word-masked    { background: #e2e8f0; color: #94a3b8; font-family: monospace; letter-spacing: 1px; user-select: none; }
 
 .result-stat { font-size: .85rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }

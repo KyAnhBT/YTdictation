@@ -90,7 +90,7 @@ function renderMasked(segIndex, hintIdx = -1) {
     if (i < wordIdx)
       return `<span class="word word-correct">${esc(w)}</span>`;
     if (i === hintIdx)
-      return `<span class="word word-revealed">${esc(w)}</span>`;
+      return `<span class="word word-hint">${esc(w)}</span>`;
     const len = exp[i] ? exp[i].length : w.replace(/[^\w']/g, '').length;
     return `<span class="word word-masked">${'*'.repeat(Math.max(len, 1))}</span>`;
   }).join(' ');
@@ -132,14 +132,14 @@ function checkSentence() {
   } else {
     // Always reveal the next expected word as hint (wrong or not yet typed)
     renderMasked(current, wordIdx);
+    const raw      = segments[current].text.trim().split(/\s+/);
+    const hintWord = raw[wordIdx] || '';
     const hasMismatch = typed.length > matched;
     setStatus('waiting', matched > 0
-      ? (hasMismatch
-          ? `✓ ${matched} từ đúng — từ sai đang được gợi ý!`
-          : `✓ ${matched} từ đúng — từ tiếp theo đang được gợi ý!`)
+      ? `✓ ${matched} từ đúng — tiếp theo cần gõ: "${hintWord}"`
       : (hasMismatch
-          ? '⚠ Sai rồi — xem từ gợi ý màu xanh!'
-          : 'Từ tiếp theo đang được gợi ý!'));
+          ? `⚠ Sai rồi — tiếp theo cần gõ: "${hintWord}"`
+          : `Tiếp theo cần gõ: "${hintWord}"`));
     $('dictInput').focus();
   }
 }

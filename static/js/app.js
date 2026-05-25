@@ -67,7 +67,6 @@ function goTo(index) {
   $('dictInput').focus();
   updateProgress();
   playSeg(current);
-  renderMasked(index);
   if (activeTab === 'trans') highlightTransSeg(current, true);
 }
 

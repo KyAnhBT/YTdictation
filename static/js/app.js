@@ -154,6 +154,8 @@ function compare(input, expected) {
 }
 
 function showResult(result) {
+  $('viBlock').hidden = true;
+  viVisible = false;
   $('wordRow').innerHTML = result.tokens
     .map(t => `<span class="word ${t.cls}">${esc(t.word)}</span>`).join(' ');
   const chip = result.accuracy >= 80 ? 'acc-great' : result.accuracy >= 50 ? 'acc-ok' : 'acc-poor';
@@ -319,6 +321,7 @@ $('urlForm').addEventListener('submit', async e => {
     translations = data.translations || new Array(segments.length).fill(null);
     current      = 0;
     scores       = {};
+    hideResult();
 
     $('workspace').hidden = false;
     $('workspace').scrollIntoView({ behavior: 'smooth', block: 'start' });

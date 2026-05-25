@@ -74,8 +74,6 @@ function switchTab(tab) {
   $('tabBtnTrans').classList.toggle('active', tab === 'trans');
   $('paneDict').hidden  = tab !== 'dict';
   $('paneTrans').hidden = tab !== 'trans';
-  // transcript-mode stretches the layout so video + transcript fill the same height
-  $('workspace').classList.toggle('transcript-mode', tab === 'trans');
   if (tab === 'trans') highlightTransSeg(current, true);
 }
 

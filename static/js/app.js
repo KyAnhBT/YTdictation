@@ -95,7 +95,7 @@ function renderMasked(segIndex) {
   $('resultStat').innerHTML = wordIdx > 0
     ? `<span style="color:var(--muted);font-size:.82rem">${wordIdx} / ${exp.length} từ</span>`
     : '';
-  $('resultArea').hidden = false;
+  $('resultArea').style.display = 'flex';
 }
 
 function checkCurrentWord() {
@@ -147,7 +147,7 @@ function revealAnswer() {
   scores[current] = scores[current] ?? 0;
   $('wordRow').innerHTML = raw.map(w => `<span class="word word-revealed">${esc(w)}</span>`).join(' ');
   $('resultStat').innerHTML = '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
-  $('resultArea').hidden = false;
+  $('resultArea').style.display = 'flex';
   showTranslation(current);
   setStatus('checked', '✓ Đã xem đáp án');
   updateProgress();

@@ -21,8 +21,24 @@ templates = Jinja2Templates(directory="templates")
 _cookies_path = "cookies.txt" if os.path.exists("cookies.txt") else None
 _yt_api = YouTubeTranscriptApi(cookies=_cookies_path) if _cookies_path else YouTubeTranscriptApi()
 
-# In-memory transcript cache — same video never fetched twice per session
-_cache: dict = {}
+# Persistent transcript cache — survives server restarts
+_CACHE_FILE = "transcript_cache.json"
+
+def _load_cache() -> dict:
+    try:
+        with open(_CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_cache(cache: dict) -> None:
+    try:
+        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+_cache: dict = _load_cache()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -349,6 +365,7 @@ async def get_transcript(url: str):
         "need_translate": not has_yt_vi and not lang_code.startswith('vi'),
     }
     _cache[video_id] = response
+    _save_cache(_cache)
     return response
 
 

@@ -137,6 +137,28 @@ body {
   align-items: start;
 }
 
+/* Transcript mode: stretch both columns to equal height */
+.workspace.transcript-mode {
+  align-items: stretch;
+}
+.workspace.transcript-mode .right-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.workspace.transcript-mode #paneTrans {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace.transcript-mode .tr-list {
+  flex: 1;
+  max-height: none;
+  overflow-y: auto;
+}
+
 /* ── VIDEO COLUMN ───────────────────────────────────────── */
 .video-col { display: flex; flex-direction: column; gap: .7rem; }
 .player-wrap {
@@ -358,4 +380,16 @@ kbd {
   .btn-primary { width: 100%; justify-content: center; }
   .header-inner { flex-direction: column; align-items: flex-start; gap: .3rem; }
   .tr-list { max-height: 320px; }
+
+  /* On narrow screens in transcript mode: pin video at top while transcript scrolls */
+  .workspace.transcript-mode .video-col {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+    padding-bottom: .5rem;
+  }
+  .workspace.transcript-mode #paneTrans {
+    max-height: 60vh;
+  }
 }

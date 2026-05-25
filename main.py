@@ -82,7 +82,7 @@ def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/api/transcript")

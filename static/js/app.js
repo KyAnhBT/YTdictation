@@ -103,25 +103,41 @@ function renderMasked(segIndex, hintIdx = -1) {
 function checkSentence() {
   const val  = $('dictInput').value.trim();
   const typed = val ? normalize(val) : [];
+  const raw   = segments[current].text.trim().split(/\s+/);
   const exp   = normalize(segments[current].text);
   if (wordIdx >= exp.length) return;
 
-  // Count consecutive matches starting from wordIdx
-  let matched = 0;
+  // Try matching from exp[wordIdx] (continue from current position)
+  let matchFromCurrent = 0;
   for (let i = 0; i < typed.length && (wordIdx + i) < exp.length; i++) {
-    if (typed[i] === exp[wordIdx + i]) matched++;
+    if (typed[i] === exp[wordIdx + i]) matchFromCurrent++;
     else break;
   }
 
-  wordIdx += matched;
+  // Also try matching from exp[0] (user re-typed from the beginning)
+  let matchFromStart = 0;
+  for (let i = 0; i < typed.length && i < exp.length; i++) {
+    if (typed[i] === exp[i]) matchFromStart++;
+    else break;
+  }
 
-  // Keep only unmatched words in input
-  $('dictInput').value = typed.slice(matched).join(' ');
+  // Use whichever gives more total progress
+  let newWordIdx, consumed;
+  if (matchFromStart > wordIdx + matchFromCurrent) {
+    newWordIdx = matchFromStart;
+    consumed   = matchFromStart;
+  } else {
+    newWordIdx = wordIdx + matchFromCurrent;
+    consumed   = matchFromCurrent;
+  }
+
+  const gained = newWordIdx - wordIdx;
+  wordIdx = newWordIdx;
+  $('dictInput').value = typed.slice(consumed).join(' ');
 
   if (wordIdx >= exp.length) {
     scores[current] = 100;
     updateProgress();
-    const raw = segments[current].text.trim().split(/\s+/);
     $('wordRow').innerHTML = raw.map(w => `<span class="word word-correct">${esc(w)}</span>`).join(' ');
     $('resultStat').innerHTML = '';
     $('resultArea').style.display = 'flex';
@@ -130,14 +146,11 @@ function checkSentence() {
     $('dictInput').value = '';
     if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
-    // Always reveal the next expected word as hint (wrong or not yet typed)
     renderMasked(current, wordIdx);
-    const raw      = segments[current].text.trim().split(/\s+/);
     const hintWord = raw[wordIdx] || '';
-    const hasMismatch = typed.length > matched;
-    setStatus('waiting', matched > 0
-      ? `✓ ${matched} từ đúng — tiếp theo cần gõ: "${hintWord}"`
-      : (hasMismatch
+    setStatus('waiting', wordIdx > 0
+      ? `✓ ${wordIdx} từ đúng — tiếp theo cần gõ: "${hintWord}"`
+      : (typed.length > 0
           ? `⚠ Sai rồi — tiếp theo cần gõ: "${hintWord}"`
           : `Tiếp theo cần gõ: "${hintWord}"`));
     $('dictInput').focus();

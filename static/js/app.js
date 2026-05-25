@@ -101,9 +101,8 @@ function renderMasked(segIndex, hintIdx = -1) {
 }
 
 function checkSentence() {
-  const val = $('dictInput').value.trim();
-  if (!val) return;
-  const typed = normalize(val);
+  const val  = $('dictInput').value.trim();
+  const typed = val ? normalize(val) : [];
   const exp   = normalize(segments[current].text);
   if (wordIdx >= exp.length) return;
 
@@ -116,9 +115,8 @@ function checkSentence() {
 
   wordIdx += matched;
 
-  // Keep only unmatched words in input so user can fix them
-  const unmatched = typed.slice(matched);
-  $('dictInput').value = unmatched.join(' ');
+  // Keep only unmatched words in input
+  $('dictInput').value = typed.slice(matched).join(' ');
 
   if (wordIdx >= exp.length) {
     scores[current] = 100;
@@ -132,28 +130,17 @@ function checkSentence() {
     $('dictInput').value = '';
     if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
-    // Reveal hint: the expected word at the current fail position
+    // Always reveal the next expected word as hint (wrong or not yet typed)
     renderMasked(current, wordIdx);
+    const hasMismatch = typed.length > matched;
     setStatus('waiting', matched > 0
-      ? `✓ ${matched} từ đúng — từ tiếp theo đang được gợi ý!`
-      : '⚠ Sai rồi — xem từ gợi ý màu xanh!');
+      ? (hasMismatch
+          ? `✓ ${matched} từ đúng — từ sai đang được gợi ý!`
+          : `✓ ${matched} từ đúng — từ tiếp theo đang được gợi ý!`)
+      : (hasMismatch
+          ? '⚠ Sai rồi — xem từ gợi ý màu xanh!'
+          : 'Từ tiếp theo đang được gợi ý!'));
     $('dictInput').focus();
-  }
-}
-
-function skipWord() {
-  const exp = normalize(segments[current].text);
-  if (wordIdx >= exp.length) return;
-  scores[current] = scores[current] ?? 0;
-  wordIdx++;
-  $('dictInput').value = '';
-  renderMasked(current);
-  updateProgress();
-  if (wordIdx >= exp.length) {
-    setStatus('checked', '✓ Đã skip hết');
-    showTranslation(current);
-  } else {
-    setStatus('checked', '↩ Đã skip');
   }
 }
 
@@ -417,7 +404,6 @@ $('urlForm').addEventListener('submit', async e => {
 
 /* ── BUTTONS ────────────────────────────────────────────── */
 $('checkBtn').addEventListener('click',  checkSentence);
-$('skipBtn').addEventListener('click',   skipWord);
 $('revealBtn').addEventListener('click', revealAnswer);
 $('clearBtn').addEventListener('click', () => {
   wordIdx = 0;

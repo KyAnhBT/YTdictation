@@ -10,6 +10,7 @@ import html
 import json
 import tempfile
 import os
+import httpx
 from typing import Optional
 
 app = FastAPI(title="YT Dictation")
@@ -87,6 +88,22 @@ def align_translations(en_segments: list[dict], vi_raw) -> list[Optional[str]]:
     return out
 
 
+# ── shared subtitle helpers ───────────────────────────────────────────────────
+
+def _parse_json3(data: dict) -> list[dict]:
+    snippets = []
+    for ev in data.get('events', []):
+        if 'segs' not in ev:
+            continue
+        text = clean_text(''.join(s.get('utf8', '') for s in ev['segs']))
+        if not text:
+            continue
+        start = ev.get('tStartMs', 0) / 1000.0
+        dur   = ev.get('dDurationMs', 2000) / 1000.0
+        snippets.append({'text': text, 'start': start, 'duration': dur})
+    return snippets
+
+
 # ── yt-dlp fallback ───────────────────────────────────────────────────────────
 
 def _ytdlp_fetch_subtitles(video_id: str) -> Optional[dict]:
@@ -151,28 +168,73 @@ def _ytdlp_fetch_subtitles(video_id: str) -> Optional[dict]:
         except Exception:
             return None
 
-        # json3 format: { "events": [ { "tStartMs": ..., "dDurationMs": ..., "segs": [...] } ] }
-        snippets = []
-        for ev in data.get('events', []):
-            if 'segs' not in ev:
-                continue
-            text = ''.join(s.get('utf8', '') for s in ev['segs']).strip()
-            text = clean_text(text)
-            if not text or text == '\n':
-                continue
-            start = ev.get('tStartMs', 0) / 1000.0
-            dur   = ev.get('dDurationMs', 2000) / 1000.0
-            snippets.append({'text': text, 'start': start, 'duration': dur})
-
+        snippets = _parse_json3(data)
         if not snippets:
             return None
 
-        return {
-            'lang': lang,
-            'lang_code': lang_code,
-            'is_generated': is_generated,
-            'snippets': snippets,
-        }
+        return {'lang': lang, 'lang_code': lang_code, 'is_generated': is_generated, 'snippets': snippets}
+
+
+# ── Invidious fallback ────────────────────────────────────────────────────────
+
+_INVIDIOUS_INSTANCES = [
+    "https://invidious.privacyredirect.com",
+    "https://yewtu.be",
+    "https://inv.riverside.rocks",
+    "https://invidious.lunar.icu",
+    "https://iv.datura.network",
+    "https://invidious.protokolla.fi",
+]
+
+async def _invidious_fetch_subtitles(video_id: str) -> Optional[dict]:
+    """Try public Invidious instances — they proxy YouTube so cloud IP bans don't apply."""
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        for instance in _INVIDIOUS_INSTANCES:
+            try:
+                r = await client.get(f"{instance}/api/v1/captions/{video_id}")
+                if r.status_code != 200:
+                    continue
+                captions = r.json().get('captions', [])
+
+                # Prefer manual English, then auto-generated English
+                cap = None
+                for c in captions:
+                    lc = c.get('languageCode', '')
+                    if lc.startswith('en') and 'auto' not in c.get('label', '').lower():
+                        cap = c; break
+                if not cap:
+                    for c in captions:
+                        if c.get('languageCode', '').startswith('en'):
+                            cap = c; break
+                if not cap:
+                    continue
+
+                # Build caption URL with json3 format
+                cap_url = cap['url']
+                if not cap_url.startswith('http'):
+                    cap_url = instance + cap_url
+                cap_url = re.sub(r'fmt=[^&]*', 'fmt=json3', cap_url)
+                if 'fmt=' not in cap_url:
+                    cap_url += '&fmt=json3'
+
+                r2 = await client.get(cap_url)
+                if r2.status_code != 200:
+                    continue
+
+                snippets = _parse_json3(r2.json())
+                if not snippets:
+                    continue
+
+                label = cap.get('label', 'English')
+                return {
+                    'lang': label,
+                    'lang_code': cap.get('languageCode', 'en'),
+                    'is_generated': 'auto' in label.lower(),
+                    'snippets': snippets,
+                }
+            except Exception:
+                continue
+    return None
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -246,14 +308,24 @@ async def get_transcript(url: str):
             lang_code   = ytdlp_result['lang_code']
             is_generated = ytdlp_result['is_generated']
             translations = [None] * len(segments)
-        else:
-            # Both paths failed — surface the original error
-            msg = primary_error or "Không tìm thấy phụ đề cho video này."
-            if 'blocking' in msg or 'IP' in msg or 'cloud' in msg.lower():
-                raise HTTPException(503,
-                    "YouTube chặn IP của server khi lấy phụ đề. "
-                    "Vui lòng chạy ứng dụng trên máy tính cá nhân thay vì cloud server.")
-            raise HTTPException(500, f"Lỗi khi tải phụ đề: {msg}")
+    # ── Fallback: Invidious proxy ─────────────────────────────
+    if not segments:
+        inv_result = await _invidious_fetch_subtitles(video_id)
+        if inv_result:
+            segments     = group_segments(inv_result['snippets'])
+            lang         = inv_result['lang']
+            lang_code    = inv_result['lang_code']
+            is_generated = inv_result['is_generated']
+            translations = [None] * len(segments)
+
+    if not segments:
+        # All three paths failed
+        msg = primary_error or "Không tìm thấy phụ đề cho video này."
+        if 'blocking' in msg or 'IP' in msg or 'cloud' in msg.lower():
+            raise HTTPException(503,
+                "Không thể lấy phụ đề qua mọi phương thức. "
+                "Vui lòng chạy ứng dụng trên máy tính cá nhân để dùng ổn định hơn.")
+        raise HTTPException(500, f"Lỗi khi tải phụ đề: {msg}")
 
     if not segments:
         raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")

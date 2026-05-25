@@ -18,34 +18,27 @@ const $ = id => document.getElementById(id);
 /* ── YOUTUBE API ────────────────────────────────────────── */
 window.onYouTubeIframeAPIReady = () => {
   ytReady = true;
-  // Pre-create the player immediately so it's warm before the user submits a URL
+  if (pendingId) { _createPlayer(pendingId); pendingId = null; }
+};
+
+function _createPlayer(videoId) {
   player = new YT.Player('ytPlayer', {
+    videoId,
     playerVars: { rel: 0, modestbranding: 1, fs: 1, playsinline: 1 },
     events: {
-      onReady: () => {
-        playerReady = true;
-        player.pauseVideo();
-        if (pendingId) {
-          player.loadVideoById(pendingId);
-          pendingId = null;
-          goTo(0);
-        }
-      },
+      onReady: () => { playerReady = true; player.pauseVideo(); goTo(0); },
       onStateChange: e => {
         if (e.data === YT.PlayerState.PLAYING)
           setStatus('playing', '▶ Đang phát đoạn ' + (current + 1) + '…');
       },
     },
   });
-};
+}
 
 function initPlayer(videoId) {
-  if (playerReady) {
-    player.loadVideoById(videoId);
-    goTo(0);
-  } else {
-    pendingId = videoId;
-  }
+  if (player && playerReady) { player.loadVideoById(videoId); goTo(0); }
+  else if (ytReady)           { _createPlayer(videoId); }
+  else                        { pendingId = videoId; }
 }
 
 /* ── PLAYBACK ───────────────────────────────────────────── */

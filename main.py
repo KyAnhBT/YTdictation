@@ -9,6 +9,7 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
     YouTubeRequestFailed,
 )
+from pydantic import BaseModel
 import re
 import html
 from typing import Optional
@@ -139,6 +140,54 @@ async def get_transcript(url: str):
         "is_generated": transcript.is_generated,
         "segments": segments,
     }
+
+
+class TranslateRequest(BaseModel):
+    texts: list[str]
+    target: str = "vi"
+
+
+def _translate_batch_google(texts: list[str], target: str) -> list[Optional[str]]:
+    from deep_translator import GoogleTranslator
+    translator = GoogleTranslator(source="auto", target=target)
+    results: list[Optional[str]] = []
+    for i in range(0, len(texts), 40):
+        chunk = texts[i : i + 40]
+        batch = translator.translate_batch(chunk)
+        results.extend(batch if batch else [None] * len(chunk))
+    return results
+
+
+def _translate_batch_mymemory(texts: list[str], target: str) -> list[Optional[str]]:
+    from deep_translator import MyMemoryTranslator
+    # MyMemory uses locale codes like "en-US"/"vi-VN"
+    lang_map = {"vi": "vi-VN", "en": "en-US", "fr": "fr-FR", "de": "de-DE", "ja": "ja-JP"}
+    tgt = lang_map.get(target, target)
+    translator = MyMemoryTranslator(source="en-US", target=tgt)
+    results: list[Optional[str]] = []
+    for text in texts:
+        try:
+            results.append(translator.translate(text))
+        except Exception:
+            results.append(None)
+    return results
+
+
+@app.post("/api/translate")
+async def translate_texts(body: TranslateRequest):
+    if not body.texts:
+        return {"translations": []}
+
+    # Try Google Translate first, fall back to MyMemory
+    for attempt in (_translate_batch_google, _translate_batch_mymemory):
+        try:
+            results = attempt(body.texts, body.target)
+            if any(r is not None for r in results):
+                return {"translations": results}
+        except Exception:
+            continue
+
+    return {"translations": [None] * len(body.texts), "error": "Translation unavailable"}
 
 
 if __name__ == "__main__":

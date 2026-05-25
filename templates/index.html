@@ -21,14 +21,12 @@
 
   <main class="main">
 
-    <!-- ── URL INPUT ─────────────────────────────────────────── -->
+    <!-- ── URL INPUT ───────────────────────────────────────── -->
     <section class="card url-card" id="urlCard">
       <h2 class="section-title">Nhập đường dẫn video YouTube</h2>
       <form id="urlForm" class="url-form" autocomplete="off">
         <input
-          type="text"
-          id="videoUrl"
-          class="url-input"
+          type="text" id="videoUrl" class="url-input"
           placeholder="https://www.youtube.com/watch?v=..."
           spellcheck="false"
         />
@@ -40,7 +38,7 @@
       <p class="error-msg" id="errorMsg" hidden></p>
     </section>
 
-    <!-- ── DICTATION WORKSPACE ───────────────────────────────── -->
+    <!-- ── WORKSPACE ────────────────────────────────────────── -->
     <section class="workspace" id="workspace" hidden>
 
       <!-- left: video -->
@@ -51,68 +49,90 @@
         <div class="video-meta" id="videoMeta"></div>
       </div>
 
-      <!-- right: practice -->
-      <div class="practice-col card">
+      <!-- right: tabs -->
+      <div class="right-col">
 
-        <!-- progress -->
-        <div class="progress-row">
-          <span class="seg-counter" id="segCounter">1 / 1</span>
-          <span class="overall-score" id="overallScore"></span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill" id="progressFill"></div>
-        </div>
-
-        <!-- playback controls -->
-        <div class="ctrl-row">
-          <button class="btn btn-sm btn-outline" id="replayBtn" title="Phát lại (Ctrl+R)">↩ Phát lại</button>
-          <button class="btn btn-sm btn-outline" id="prevBtn"   title="Câu trước (Ctrl+←)" disabled>◀ Trước</button>
-          <button class="btn btn-sm btn-outline" id="nextBtn"   title="Câu sau (Ctrl+→)">Tiếp ▶</button>
-          <label class="toggle">
-            <input type="checkbox" id="autoAdvance" checked />
-            <span>Tự động tiếp</span>
-          </label>
+        <!-- Tab bar -->
+        <div class="tab-bar">
+          <button class="tab-btn active" id="tabBtnDict" onclick="switchTab('dict')">
+            🎧 Luyện nghe
+          </button>
+          <button class="tab-btn" id="tabBtnTrans" onclick="switchTab('trans')">
+            📋 Transcript
+          </button>
         </div>
 
-        <!-- status banner -->
-        <div class="status-banner" id="statusBanner">
-          <span id="statusText">Đang tải...</span>
-        </div>
+        <!-- ── DICTATION PANE ──────────────────────────────── -->
+        <div class="tab-pane card" id="paneDict">
 
-        <!-- text input -->
-        <div class="input-wrap">
-          <textarea
-            id="dictInput"
-            class="dict-textarea"
-            placeholder="Gõ những gì bạn nghe được..."
-            rows="3"
-            spellcheck="false"
-          ></textarea>
-        </div>
+          <div class="progress-row">
+            <span class="seg-counter" id="segCounter">1 / 1</span>
+            <span class="overall-score" id="overallScore"></span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
 
-        <!-- action buttons -->
-        <div class="action-row">
-          <button class="btn btn-success" id="checkBtn">✓ Kiểm tra</button>
-          <button class="btn btn-warn"    id="revealBtn">👁 Xem đáp án</button>
-          <button class="btn btn-ghost"   id="clearBtn">✕ Xóa</button>
-        </div>
+          <div class="ctrl-row">
+            <button class="btn btn-sm btn-outline" id="replayBtn" title="Phát lại (Ctrl+R)">↩ Phát lại</button>
+            <button class="btn btn-sm btn-outline" id="prevBtn"   title="Câu trước (Ctrl+←)" disabled>◀ Trước</button>
+            <button class="btn btn-sm btn-outline" id="nextBtn"   title="Câu sau (Ctrl+→)">Tiếp ▶</button>
+            <label class="toggle">
+              <input type="checkbox" id="autoAdvance" checked />
+              <span>Tự động tiếp</span>
+            </label>
+          </div>
 
-        <!-- result area -->
-        <div class="result-area" id="resultArea" hidden>
-          <div class="word-row" id="wordRow"></div>
-          <div class="result-stat" id="resultStat"></div>
-        </div>
+          <div class="status-banner" id="statusBanner">
+            <span id="statusText">Đang tải...</span>
+          </div>
 
-        <!-- shortcuts hint -->
-        <div class="shortcuts">
-          <kbd>Enter</kbd> kiểm tra &nbsp;·&nbsp;
-          <kbd>Ctrl+R</kbd> phát lại &nbsp;·&nbsp;
-          <kbd>Ctrl+→</kbd> tiếp &nbsp;·&nbsp;
-          <kbd>Ctrl+←</kbd> trước
-        </div>
+          <div class="input-wrap">
+            <textarea
+              id="dictInput" class="dict-textarea"
+              placeholder="Gõ những gì bạn nghe được..."
+              rows="3" spellcheck="false"
+            ></textarea>
+          </div>
 
-      </div><!-- /practice-col -->
-    </section><!-- /workspace -->
+          <div class="action-row">
+            <button class="btn btn-success" id="checkBtn">✓ Kiểm tra</button>
+            <button class="btn btn-warn"    id="revealBtn">👁 Xem đáp án</button>
+            <button class="btn btn-ghost"   id="clearBtn">✕ Xóa</button>
+          </div>
+
+          <!-- result + translation -->
+          <div class="result-area" id="resultArea" hidden>
+            <div class="word-row"   id="wordRow"></div>
+            <div class="result-stat" id="resultStat"></div>
+            <div class="vi-block"   id="viBlock" hidden>
+              <span class="vi-label">🇻🇳</span>
+              <span class="vi-text" id="viText"></span>
+            </div>
+          </div>
+
+          <div class="shortcuts">
+            <kbd>Enter</kbd> kiểm tra &nbsp;·&nbsp;
+            <kbd>Ctrl+R</kbd> phát lại &nbsp;·&nbsp;
+            <kbd>Ctrl+→</kbd> tiếp &nbsp;·&nbsp;
+            <kbd>Ctrl+←</kbd> trước
+          </div>
+
+        </div><!-- /paneDict -->
+
+        <!-- ── TRANSCRIPT PANE ─────────────────────────────── -->
+        <div class="tab-pane card" id="paneTrans" hidden>
+          <div class="tr-toolbar">
+            <span class="tr-hint" id="trHint">Nhấn vào câu bất kỳ để phát</span>
+            <span class="tr-loading-badge" id="trLoadBadge" hidden>⏳ Đang dịch…</span>
+          </div>
+          <div class="tr-list" id="trList">
+            <!-- populated by JS -->
+          </div>
+        </div><!-- /paneTrans -->
+
+      </div><!-- /right-col -->
+    </section>
 
   </main>
 

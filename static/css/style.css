@@ -246,6 +246,27 @@ body {
 
 .action-row { display: flex; gap: .5rem; flex-wrap: wrap; }
 
+.lang-picker {
+  display: flex; align-items: center; gap: .55rem;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: .5rem .75rem;
+}
+.lang-picker label {
+  font-size: .82rem; color: var(--muted);
+  white-space: nowrap; user-select: none;
+}
+.lang-select {
+  flex: 1;
+  padding: .4rem .6rem;
+  border: 1.5px solid var(--border); border-radius: 6px;
+  font-size: .85rem; font-family: inherit;
+  color: var(--text); background: var(--surface);
+  cursor: pointer; outline: none;
+  transition: border-color var(--trans);
+}
+.lang-select:focus { border-color: var(--primary); }
+
 .result-area {
   background: #f8fafc; border: 1px solid var(--border);
   border-radius: 8px; padding: .85rem 1rem;

@@ -12,6 +12,17 @@ let scores       = {};
 let activeTab    = 'dict';
 let viVisible    = false;
 let wordIdx      = 0;   // word-by-word: index of next expected word
+let inDictation  = false; // true while playSeg() timer is active — blocks startSync from overriding current
+let targetLang   = 'vi'; // target translation language
+
+function getLangFlag() {
+  const sel = $('targetLang');
+  if (!sel) return '🌐';
+  const text = sel.options[sel.selectedIndex]?.text || '';
+  // Flag emojis are regional indicator pairs — grab first non-space cluster
+  const m = text.match(/^[^\s]+/);
+  return m ? m[0] : '🌐';
+}
 
 /* ── DOM ────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -30,7 +41,7 @@ function _createPlayer(videoId) {
       onReady: () => { playerReady = true; player.pauseVideo(); goTo(0); },
       onStateChange: e => {
         if (e.data === YT.PlayerState.PLAYING)
-          setStatus('playing', '▶ Đang phát đoạn ' + (current + 1) + '…');
+          setStatus('playing', '▶ Playing segment ' + (current + 1) + '…');
       },
     },
   });
@@ -47,11 +58,13 @@ function playSeg(index) {
   if (!player || !segments[index]) return;
   const seg = segments[index];
   clearTimeout(pauseTimer);
+  inDictation = true;
   player.seekTo(seg.start, true);
   player.playVideo();
   pauseTimer = setTimeout(() => {
+    inDictation = false;
     player.pauseVideo();
-    setStatus('waiting', '⌨ Gõ những gì bạn vừa nghe, rồi nhấn Enter.');
+    setStatus('waiting', '⌨ Type what you just heard, then press Enter.');
   }, seg.duration * 1000 + 600);
 }
 
@@ -94,7 +107,7 @@ function renderMasked(segIndex, hintIdx = -1) {
     return `<span class="word word-masked">${'*'.repeat(Math.max(len, 1))}</span>`;
   }).join(' ');
   $('resultStat').innerHTML = wordIdx > 0
-    ? `<span style="color:var(--muted);font-size:.82rem">${wordIdx} / ${exp.length} từ</span>`
+    ? `<span style="color:var(--muted);font-size:.82rem">${wordIdx} / ${exp.length} words</span>`
     : '';
   $('resultArea').style.display = 'flex';
 }
@@ -120,17 +133,17 @@ function checkSentence() {
     $('wordRow').innerHTML = raw.map(w => `<span class="word word-correct">${esc(w)}</span>`).join(' ');
     $('resultStat').innerHTML = '';
     $('resultArea').style.display = 'flex';
-    setStatus('checked', '🎉 Hoàn hảo!');
+    setStatus('checked', '🎉 Perfect!');
     showTranslation(current);
     if ($('autoAdvance').checked) setTimeout(() => goTo(current + 1), 1400);
   } else {
     renderMasked(current, wordIdx);
     const hintWord = raw[wordIdx] || '';
     setStatus('waiting', wordIdx > 0
-      ? `✓ ${wordIdx} từ đúng — tiếp theo cần gõ: "${hintWord}"`
+      ? `✓ ${wordIdx} correct — next word: "${hintWord}"`
       : (typed.length > 0
-          ? `⚠ Sai rồi — tiếp theo cần gõ: "${hintWord}"`
-          : `Tiếp theo cần gõ: "${hintWord}"`));
+          ? `⚠ Wrong — next word: "${hintWord}"`
+          : `Next word: "${hintWord}"`));
     $('dictInput').focus();
   }
 }
@@ -140,10 +153,10 @@ function revealAnswer() {
   wordIdx = normalize(segments[current].text).length;
   scores[current] = scores[current] ?? 0;
   $('wordRow').innerHTML = raw.map(w => `<span class="word word-revealed">${esc(w)}</span>`).join(' ');
-  $('resultStat').innerHTML = '<span style="color:var(--muted);font-size:.82rem">Đáp án đã được hiển thị.</span>';
+  $('resultStat').innerHTML = '<span style="color:var(--muted);font-size:.82rem">Answer revealed.</span>';
   $('resultArea').style.display = 'flex';
   showTranslation(current);
-  setStatus('checked', '✓ Đã xem đáp án');
+  setStatus('checked', '✓ Answer revealed');
   updateProgress();
 }
 
@@ -156,7 +169,7 @@ function showTranslation(index) {
     $('viBlock').hidden     = false;
     viVisible = true;
   } else if (translations.length > 0 && translations.every(t => t === null)) {
-    $('viText').textContent = 'Đang dịch…';
+    $('viText').textContent = 'Translating…';
     $('viText').className   = 'vi-text loading';
     $('viBlock').hidden     = false;
     viVisible = true;
@@ -169,40 +182,9 @@ function showTranslation(index) {
 /* ── COMPARE ────────────────────────────────────────────── */
 function normalize(s) {
   return s.toLowerCase()
-    .replace(/[‘’‚‛′‵`´]/g, "'") // Unicode apostrophes → ASCII
-    .replace(/[^\w\s']/g, ' ')
+    .replace(/[‘’‚‛′‵`´]/g, "’") // Unicode apostrophes → ASCII
+    .replace(/[^\w\s'-]/g, ' ')  // keep hyphens so "ex-boyfriends" stays 1 token
     .trim().split(/\s+/).filter(Boolean);
-}
-
-function compare(input, expected) {
-  const inp = normalize(input), exp = normalize(expected);
-  let correct = 0;
-  const tokens = [];
-  for (let i = 0; i < exp.length; i++) {
-    if (inp[i] === exp[i]) { tokens.push({ word: exp[i], cls: 'word-correct' }); correct++; }
-    else if (!inp[i])       tokens.push({ word: exp[i], cls: 'word-missing' });
-    else                    tokens.push({ word: inp[i], cls: 'word-incorrect' });
-  }
-  for (let i = exp.length; i < inp.length; i++)
-    tokens.push({ word: inp[i], cls: 'word-extra' });
-  const accuracy = exp.length ? Math.round((correct / exp.length) * 100) : 0;
-  return { tokens, accuracy, correct, total: exp.length };
-}
-
-function showResult(result) {
-  $('viBlock').hidden = true;
-  viVisible = false;
-  $('wordRow').innerHTML = result.tokens
-    .map(t => `<span class="word ${t.cls}">${esc(t.word)}</span>`).join(' ');
-  const chip = result.accuracy >= 80 ? 'acc-great' : result.accuracy >= 50 ? 'acc-ok' : 'acc-poor';
-  $('resultStat').innerHTML =
-    `<span class="acc-chip ${chip}">${result.accuracy}%</span>` +
-    `<span style="color:var(--muted)">${result.correct}/${result.total} từ đúng</span>`;
-  $('resultArea').hidden = false;
-  const emoji = result.accuracy === 100 ? '🎉 Hoàn hảo!'
-              : result.accuracy >= 80   ? '👍 Rất tốt!'
-              : result.accuracy >= 50   ? '🙂 Khá ổn' : '💪 Cố lên!';
-  setStatus('checked', `${emoji}  ${result.accuracy}% chính xác`);
 }
 
 function hideResult() {
@@ -222,11 +204,12 @@ function updateProgress() {
   const vals = Object.values(scores);
   if (vals.length)
     $('overallScore').textContent =
-      `Điểm TB: ${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%`;
+      `Avg: ${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)}%`;
 }
 
 /* ── STATUS ─────────────────────────────────────────────── */
 function setStatus(type, msg) {
+  $('statusBanner').hidden    = !msg;
   $('statusBanner').className = 'status-banner' + (type ? ' ' + type : '');
   $('statusText').textContent = msg;
 }
@@ -270,8 +253,8 @@ function patchTranslationRows() {
       viEl.classList.remove('tr-pending');
     }
   });
-  // refresh vi-block only if it was already legitimately visible
-  if (!$('resultArea').hidden && viVisible) showTranslation(current);
+  // refresh vi-block only if result area is actually visible and vi was shown
+  if ($('resultArea').style.display !== 'none' && viVisible) showTranslation(current);
 }
 
 function highlightTransSeg(index, scroll = false) {
@@ -305,6 +288,7 @@ function startSync() {
   syncTimer = setInterval(() => {
     if (!player || typeof player.getPlayerState !== 'function') return;
     if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;
+    if (inDictation) return; // playSeg() is controlling playback — don't override current
     const time = player.getCurrentTime();
     const idx  = segments.findIndex(s => time >= s.start && time < s.start + s.duration);
     if (idx !== -1 && idx !== current) {
@@ -315,9 +299,21 @@ function startSync() {
   }, 400);
 }
 
+/* ── LANGUAGE CHANGE ────────────────────────────────────── */
+function onLangChange() {
+  targetLang = $('targetLang').value;
+  if ($('viLabel')) $('viLabel').textContent = getLangFlag();
+  // Clear current translations and re-fetch in new language
+  if (segments.length === 0) return;
+  translations = new Array(segments.length).fill(null);
+  hideResult();
+  renderTranscriptList();
+  fetchTranslationsBackground(targetLang);
+}
+
 /* ── BACKGROUND TRANSLATION FETCH ──────────────────────── */
-async function fetchTranslationsBackground(langCode) {
-  // Mark all VI rows as loading
+async function fetchTranslationsBackground(lang) {
+  lang = lang || targetLang;
   $('tabBtnTrans').dataset.loading = '1';
   updateTabLabel(true);
 
@@ -325,7 +321,7 @@ async function fetchTranslationsBackground(langCode) {
     const res  = await fetch('/api/translate', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ texts: segments.map(s => s.text), target: 'vi' }),
+      body:    JSON.stringify({ texts: segments.map(s => s.text), target: lang }),
     });
     const data = await res.json();
     if (data.translations) {
@@ -355,7 +351,7 @@ $('urlForm').addEventListener('submit', async e => {
   try {
     const res  = await fetch(`/api/transcript?url=${encodeURIComponent(url)}`);
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Lỗi không xác định');
+    if (!res.ok) throw new Error(data.detail || 'Unknown error');
 
     segments     = data.segments;
     translations = data.translations || new Array(segments.length).fill(null);
@@ -376,9 +372,15 @@ $('urlForm').addEventListener('submit', async e => {
     updateProgress();
     initPlayer(data.video_id);
 
-    // If YouTube had no VI translation → fetch via Google Translate in background
-    if (data.need_translate) {
-      fetchTranslationsBackground(data.language_code);
+    // Update flag icon to match selected language
+    if ($('viLabel')) $('viLabel').textContent = getLangFlag();
+
+    // Fetch translation if: YouTube had no VI translation, OR user chose a non-VI language
+    if (targetLang !== 'vi') {
+      translations = new Array(segments.length).fill(null); // clear YouTube's VI translations
+      fetchTranslationsBackground(targetLang);
+    } else if (data.need_translate) {
+      fetchTranslationsBackground('vi');
     }
 
   } catch (err) {
@@ -399,10 +401,7 @@ $('revealBtn').addEventListener('click', revealAnswer);
 $('clearBtn').addEventListener('click', () => {
   wordIdx = 0;
   $('dictInput').value = '';
-  $('viBlock').hidden = true;
-  viVisible = false;
-  renderMasked(current);
-  $('resultStat').innerHTML = '';
+  hideResult();
   setStatus('', '');
   $('dictInput').focus();
 });
@@ -413,6 +412,9 @@ $('nextBtn').addEventListener('click',   () => goTo(current + 1));
 /* ── KEYBOARD ───────────────────────────────────────────── */
 $('dictInput').addEventListener('input', () => {
   $('resultArea').style.display = 'none';
+  $('viBlock').hidden = true;   // hide translation while typing
+  viVisible = false;
+  $('statusBanner').hidden = true;  // hide hint banner while typing
 });
 
 $('dictInput').addEventListener('keydown', e => {

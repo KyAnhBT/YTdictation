@@ -7,19 +7,40 @@ from pydantic import BaseModel
 import asyncio
 import re
 import html
+import http.cookiejar
 import json
 import tempfile
 import os
 import httpx
+import requests
 from typing import Optional
 
 app = FastAPI(title="YT Dictation")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Use cookies.txt if present (Netscape format — export via browser extension)
-_cookies_path = "cookies.txt" if os.path.exists("cookies.txt") else None
-_yt_api = YouTubeTranscriptApi(cookies=_cookies_path) if _cookies_path else YouTubeTranscriptApi()
+# Use cookies file if present (Netscape format — export via browser extension)
+# Auto-detect common cookie filenames exported by browser extensions
+_cookies_path = None
+for _cf in ["cookies.txt", "www.youtube.com_cookies.txt", "youtube_cookies.txt", "youtube.com_cookies.txt"]:
+    if os.path.exists(_cf):
+        _cookies_path = _cf
+        break
+
+def _make_yt_api() -> YouTubeTranscriptApi:
+    """Create YouTubeTranscriptApi instance, loading cookies if available."""
+    if _cookies_path:
+        try:
+            session = requests.Session()
+            cj = http.cookiejar.MozillaCookieJar(_cookies_path)
+            cj.load(ignore_discard=True, ignore_expires=True)
+            session.cookies = cj  # type: ignore[assignment]
+            return YouTubeTranscriptApi(http_client=session)
+        except Exception:
+            pass
+    return YouTubeTranscriptApi()
+
+_yt_api = _make_yt_api()
 
 # Persistent transcript cache — survives server restarts
 _CACHE_FILE = "transcript_cache.json"
@@ -60,6 +81,8 @@ def extract_video_id(url: str) -> Optional[str]:
 def clean_text(text: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
+    # Strip invisible Unicode chars (zero-width space/joiner/non-joiner, BOM, soft-hyphen, LRM/RLM)
+    text = re.sub('[​‌‍‎‏﻿­]', '', text)
     return re.sub(r'\s+', ' ', text).strip()
 
 
@@ -69,7 +92,35 @@ def to_dict(seg) -> dict:
     return {'text': seg.text, 'start': float(seg.start), 'duration': float(seg.duration)}
 
 
-def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list[dict]:
+def _remove_overlap(existing: str, new_text: str) -> str:
+    """Remove the overlapping prefix of new_text that already appears at the tail of existing.
+
+    YouTube auto-captions use a rolling window, so segment N often starts
+    with the last few words of segment N-1.  This strips that duplicate prefix
+    before merging, e.g.:
+        existing = "Take off your blindfolds!"
+        new_text = "Take off your blindfolds! Ashley, these are"
+        → returns   "Ashley, these are"
+    """
+    e_words = existing.lower().split()
+    n_words = new_text.split()
+    n_lower = [w.lower() for w in n_words]
+    for length in range(min(len(e_words), len(n_words)), 0, -1):
+        if e_words[-length:] == n_lower[:length]:
+            remainder = n_words[length:]
+            return ' '.join(remainder)   # may be empty string
+    return new_text
+
+
+def group_segments(raw, target: float = 6.0, max_dur: float = 10.0,
+                   max_words: int = 30) -> list[dict]:
+    """Group raw transcript snippets into dictation-friendly sentences.
+
+    Changes vs original:
+    - max_dur reduced 14 → 10 s (shorter, more manageable chunks)
+    - max_words=30 hard cap so no segment is painfully long
+    - _remove_overlap() strips rolling-caption duplicates before merging
+    """
     result, cur = [], None
     for raw_seg in raw:
         seg = to_dict(raw_seg)
@@ -80,13 +131,17 @@ def group_segments(raw, target: float = 6.0, max_dur: float = 14.0) -> list[dict
             cur = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
         else:
             new_end = seg['start'] + seg['duration']
-            merged = new_end - cur['start']
-            ends = cur['text'].rstrip().endswith(('.', '!', '?'))
-            if merged > max_dur or (merged >= target and ends):
+            merged_dur = new_end - cur['start']
+            ends      = cur['text'].rstrip().endswith(('.', '!', '?'))
+            cur_words = len(cur['text'].split())
+
+            if merged_dur > max_dur or (merged_dur >= target and ends) or cur_words >= max_words:
                 result.append(cur)
                 cur = {'text': text, 'start': seg['start'], 'duration': seg['duration']}
             else:
-                cur['text'] += ' ' + text
+                deduped = _remove_overlap(cur['text'], text)
+                if deduped:                     # skip if fully duplicate
+                    cur['text'] += ' ' + deduped
                 cur['duration'] = new_end - cur['start']
     if cur:
         result.append(cur)
@@ -269,7 +324,7 @@ async def index(request: Request):
 async def get_transcript(url: str):
     video_id = extract_video_id(url)
     if not video_id:
-        raise HTTPException(400, "URL YouTube không hợp lệ.")
+        raise HTTPException(400, "Invalid YouTube URL.")
 
     if video_id in _cache:
         return _cache[video_id]
@@ -302,7 +357,7 @@ async def get_transcript(url: str):
                 continue
 
         if not transcript:
-            raise ValueError("Không có phụ đề khả dụng.")
+            raise ValueError("No subtitles available.")
 
         en_raw  = transcript.fetch()
         segments = group_segments(en_raw)
@@ -324,7 +379,7 @@ async def get_transcript(url: str):
 
     # ── Fallback: yt-dlp ──────────────────────────────────────
     if not segments:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         ytdlp_result = await loop.run_in_executor(None, _ytdlp_fetch_subtitles, video_id)
         if ytdlp_result:
             segments    = group_segments(ytdlp_result['snippets'])
@@ -344,16 +399,13 @@ async def get_transcript(url: str):
 
     if not segments:
         # All three paths failed
-        msg = primary_error or "Không tìm thấy phụ đề cho video này."
+        msg = primary_error or "No subtitles found for this video."
         if 'blocking' in msg or 'IP' in msg or 'too many' in msg.lower() or '429' in msg:
-            hint = " Đặt file cookies.txt vào thư mục app để dùng cookie YouTube của bạn." if not _cookies_path else ""
+            hint = " Place a cookies.txt file in the app folder to use your YouTube cookies." if not _cookies_path else ""
             raise HTTPException(429,
-                f"YouTube tạm thời chặn IP do quá nhiều request.{hint} "
-                "Thử lại sau vài phút hoặc dùng video khác trước.")
-        raise HTTPException(500, f"Lỗi khi tải phụ đề: {msg}")
-
-    if not segments:
-        raise HTTPException(404, "Phụ đề trống hoặc không đọc được.")
+                f"YouTube temporarily blocked this IP due to too many requests.{hint} "
+                "Try again in a few minutes or try a different video first.")
+        raise HTTPException(500, f"Error loading subtitles: {msg}")
 
     response = {
         "video_id": video_id,
@@ -378,7 +430,7 @@ class TranslateRequest(BaseModel):
 
 async def _translate_one(text: str, target: str) -> Optional[str]:
     """Translate a single text in a thread (deep-translator is synchronous)."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     def _do():
         try:
             from deep_translator import GoogleTranslator

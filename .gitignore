@@ -1,2 +1,7 @@
 __pycache__/
 transcript_cache.json
+
+# Cookie files — contain personal YouTube session tokens
+cookies.txt
+*.cookies.txt
+*_cookies.txt
